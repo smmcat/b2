@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' https: blob:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>媒体预览</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #eee;
+      font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; overflow: hidden; }
+    .wrap { display: flex; flex-direction: column; height: 100vh; }
+    .bar { padding: 8px 14px; font-size: 13px; color: #bbb; background: #111; display: flex;
+      justify-content: space-between; align-items: center; gap: 10px; }
+    .bar .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar .src { font-size: 11px; color: #666; max-width: 50%; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+    .stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+    video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    .audio-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 20px; padding: 40px; }
+    .audio-wrap .big-icon { font-size: 96px; }
+    audio { width: min(560px, 90%); }
+    .hint { padding: 40px; color: #888; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <span class="name" id="pName"></span>
+      <span class="src" id="pSrc" title=""></span>
+    </div>
+    <div class="stage" id="stage"></div>
+  </div>
+  <script src="player.js"></script>
+</body>
+</html>

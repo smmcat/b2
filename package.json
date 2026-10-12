@@ -1,0 +1,50 @@
+{
+  "name": "b2-netdisk",
+  "version": "1.0.0",
+  "description": "基于 Backblaze B2 存储桶的网盘客户端 (Node.js + Electron)",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder --win",
+    "build:dir": "electron-builder --win --dir"
+  },
+  "author": "smmcat",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "electron": "^31.7.6",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.smm.b2netdisk",
+    "productName": "B2NetDisk",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "src/assets/b2_128x128.ico",
+      "publisherName": "smmcat",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "installerIcon": "src/assets/b2_128x128.ico",
+      "uninstallerIcon": "src/assets/b2_128x128.ico"
+    }
+  }
+}

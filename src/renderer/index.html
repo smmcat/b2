@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' https: blob:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>B2 网盘</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">☁️</span>
+      <span class="title">B2 网盘</span>
+      <span id="bucketName" class="bucket"></span>
+      <span id="usageInfo" class="usage" title="点击刷新空间统计">已用 --</span>
+    </div>
+    <div class="actions">
+      <button id="btnUpload" class="btn primary">⬆ 上传文件</button>
+      <button id="btnNewFolder" class="btn">📁 新建文件夹</button>
+      <button id="btnRefresh" class="btn">🔄 刷新</button>
+      <button id="btnSettings" class="btn">⚙ 设置</button>
+    </div>
+  </header>
+
+  <nav class="breadcrumb" id="breadcrumb"></nav>
+
+  <main class="content">
+    <div class="file-list-header">
+      <div class="col-name">名称</div>
+      <div class="col-size">大小</div>
+      <div class="col-time">修改时间</div>
+      <div class="col-op">操作</div>
+    </div>
+    <div id="fileList" class="file-list"></div>
+    <div id="emptyTip" class="empty-tip hidden">
+      <div class="empty-icon">📂</div>
+      <div>此文件夹为空，点击右上角「上传文件」开始使用</div>
+    </div>
+    <div id="loadingTip" class="loading-tip hidden">加载中…</div>
+  </main>
+
+  <!-- 右下角传输队列开关 -->
+  <button id="ppToggle" class="pp-toggle" title="传输队列">
+    <img src="../assets/downloaing.svg" alt="传输队列" />
+    <span id="ppBadge" class="pp-badge hidden">0</span>
+  </button>
+
+  <!-- 进度面板 -->
+  <aside id="progressPanel" class="progress-panel hidden">
+    <div class="pp-header">
+      <span>传输任务</span>
+      <button id="ppClose" class="link-btn">收起</button>
+    </div>
+    <div id="ppList" class="pp-list"></div>
+  </aside>
+
+  <!-- 重命名对话框 -->
+  <div id="renameModal" class="modal hidden">
+    <div class="modal-box">
+      <h3>重命名</h3>
+      <input id="renameInput" type="text" />
+      <div class="modal-actions">
+        <button id="renameCancel" class="btn">取消</button>
+        <button id="renameOk" class="btn primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建文件夹对话框 -->
+  <div id="folderModal" class="modal hidden">
+    <div class="modal-box">
+      <h3>新建文件夹</h3>
+      <input id="folderInput" type="text" placeholder="文件夹名称" />
+      <div class="modal-actions">
+        <button id="folderCancel" class="btn">取消</button>
+        <button id="folderOk" class="btn primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设置 / 首次配置向导 -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-box" style="width:520px;">
+      <h3 id="settingsTitle">⚙ 设置</h3>
+      <div id="setupIntro" class="hint" style="margin-bottom:12px;display:none;">
+        欢迎使用 B2 网盘！请先填写 Backblaze B2 配置信息，完成后即可开始使用。
+      </div>
+      <div class="form-row">
+        <label>Key ID <span class="req">*</span></label>
+        <input id="setKeyId" type="text" placeholder="005xxxxxxxxxxx" autocomplete="off" />
+      </div>
+      <div class="form-row">
+        <label>Application Key <span class="req">*</span></label>
+        <input id="setAppKey" type="password" placeholder="K005xxxxxxxxxxxxxx" autocomplete="off" />
+      </div>
+      <div class="form-row">
+        <label>Bucket ID <span class="req">*</span></label>
+        <input id="setBucketId" type="text" placeholder="fd47xxxxxxxxxxxx" autocomplete="off" />
+      </div>
+      <div class="form-row">
+        <label>Bucket Name <span class="req">*</span></label>
+        <input id="setBucketName" type="text" placeholder="smmcatWeb" autocomplete="off" />
+      </div>
+      <hr style="border:none;border-top:1px dashed #e4e7ed;margin:14px 0;" />
+      <div class="form-row">
+        <label>代理基地址（Cloudflare 等，可选）</label>
+        <input id="setProxyBase" type="text" placeholder="https://b2.smmmax.top" autocomplete="off" />
+        <div class="hint">留空 = 不使用代理，直连 Backblaze B2。</div>
+      </div>
+      <div class="form-row">
+        <label>URL 模板</label>
+        <input id="setTemplate" type="text" autocomplete="off" />
+        <div class="hint">
+          占位符：<code>{proxyBase}</code> 代理基地址 ・
+          <code>{filePath}</code> 文件路径 ・
+          <code>{bucketName}</code> 存储桶名<br/>
+          示例：Cloudflare Workers 把「域名/文件路径」映射回 B2 时填 <code>{proxyBase}/{filePath}</code>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="settingsCancel" class="btn">取消</button>
+        <button id="settingsOk" class="btn primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 全局提示 -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
