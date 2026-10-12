@@ -303,7 +303,11 @@ ipcMain.handle('b2:openPlayer', async (_e, { fileName }) => {
       icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
       backgroundColor: '#000',
       autoHideMenuBar: true,
-      webPreferences: { contextIsolation: true, nodeIntegration: false },
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        preload: path.join(__dirname, 'preload.js'),
+      },
     });
     win.setMenuBarVisibility(false);
     win.loadFile(path.join(__dirname, '..', 'renderer', 'player.html'), { query: { url, name: path.basename(fileName), kind } });
@@ -311,6 +315,20 @@ ipcMain.handle('b2:openPlayer', async (_e, { fileName }) => {
   } catch (err) {
     return { ok: false, error: err.message };
   }
+});
+
+// 把远程文件抓成 base64 dataURL（图片预览用，规避 CSP / 跨域 / 鉴权头问题）
+ipcMain.handle('b2:fetchDataUrl', async (_e, { url }) => {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const mimeByExt = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+    webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', ico: 'image/x-icon', avif: 'image/avif',
+  };
+  const ext = (url.split('?')[0].split('.').pop() || '').toLowerCase();
+  const mime = resp.headers.get('content-type')?.split(';')[0] || mimeByExt[ext] || 'application/octet-stream';
+  const buf = Buffer.from(await resp.arrayBuffer());
+  return `data:${mime};base64,${buf.toString('base64')}`;
 });
 
 const _mediaExt = {

@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld('b2api', {
   // 在新窗口播放媒体
   openPlayer: (fileName) => ipcRenderer.invoke('b2:openPlayer', { fileName }),
 
+  // 抓取远程文件为 base64 dataURL（图片预览）
+  fetchDataUrl: (url) => ipcRenderer.invoke('b2:fetchDataUrl', { url }),
+
   // 设置
   getSettings: () => ipcRenderer.invoke('b2:getSettings'),
   saveSettings: (patch) => ipcRenderer.invoke('b2:saveSettings', patch),
