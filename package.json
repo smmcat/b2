@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.smm.b2netdisk",
     "productName": "B2NetDisk",
+    "publish": null,
     "directories": {
       "output": "dist"
     },
@@ -35,16 +36,15 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "src/assets/b2_128x128.ico",
-      "publisherName": "smmcat",
-      "signAndEditExecutable": false
+      "icon": "src/assets/icon.ico",
+      "publisherName": "smmcat"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "installerIcon": "src/assets/b2_128x128.ico",
-      "uninstallerIcon": "src/assets/b2_128x128.ico"
+      "installerIcon": "src/assets/icon.ico",
+      "uninstallerIcon": "src/assets/icon.ico"
     }
   }
 }

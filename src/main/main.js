@@ -5,6 +5,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 const dotenv = require('dotenv');
 
+// 必须在创建任何窗口前设置：Windows 任务栏按 AppUserModelID 分组与取图标，
+// 不设置会回退到 Electron 默认图标（固定到任务栏后尤其明显）
+app.setAppUserModelId('com.smm.b2netdisk');
+
 /**
  * 在多个候选位置查找 .env：
  * 1) userData（用户可覆盖，最高优先级）
@@ -84,7 +88,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'B2 网盘',
-    icon: path.join(__dirname, '..', 'assets', 'b2_128x128.ico'),
+    icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
     backgroundColor: '#f5f7fa',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -296,7 +300,7 @@ ipcMain.handle('b2:openPlayer', async (_e, { fileName }) => {
       minWidth: 480,
       minHeight: 360,
       title: path.basename(fileName),
-      icon: path.join(__dirname, '..', 'assets', 'b2_128x128.ico'),
+      icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
       backgroundColor: '#000',
       autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, nodeIntegration: false },
@@ -325,7 +329,9 @@ function mediaKind(name) {
 /* ---------------- App lifecycle ---------------- */
 
 app.whenReady().then(() => {
-  settings.init(app.getPath('userData'));
+  // 配置文件存放位置：打包后放安装目录（exe 同级），开发态放项目根目录
+  const configDir = app.isPackaged ? path.dirname(process.execPath) : process.cwd();
+  settings.init(configDir, app.getPath('userData'));
 
   // 仅在 settings.json 首次创建时，用 .env 填充默认值（开发便利；打包后无 .env 则跳过）
   if (settings.isNew()) {

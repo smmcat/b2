@@ -49,7 +49,7 @@ b2/
 │   │   ├── main.js            # 入口、IPC 注册、窗口管理、下载任务队列
 │   │   ├── b2.js              # B2 原生 API 客户端（核心）
 │   │   ├── preload.js         # 安全 IPC 桥接（contextIsolation）
-│   │   └── settings.js        # 用户配置 + 空间统计缓存（userData/settings.json）
+│   │   └── settings.js        # 用户配置 + 空间统计缓存（settings.json）
 │   ├── renderer/              # 渲染进程（界面）
 │   │   ├── index.html         # 主界面结构
 │   │   ├── style.css          # 界面样式
@@ -77,7 +77,7 @@ b2/
 | 代理基地址 | 如 `https://b2.smmmax.top`（Cloudflare 代理，可选，留空则直连） |
 | URL 模板 | 占位符 `{proxyBase}` / `{filePath}` / `{bucketName}`，默认 `{proxyBase}/{filePath}` |
 
-配置保存在 `%APPDATA%\B2NetDisk\settings.json`，可随时在「⚙ 设置」中修改并即时生效。
+配置保存在**安装目录下的 `settings.json`**（与 `B2NetDisk.exe` 同级），可随时在「⚙ 设置」中修改并即时生效。从旧版本升级时，会自动把原 `%APPDATA%` 下的配置迁移过来。
 
 ### 方式二：开发期 `.env`（可选便利）
 项目根目录放置 `.env`（已被 `.gitignore` 忽略，**不会打入安装包**）：

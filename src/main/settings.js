@@ -28,8 +28,18 @@ let cache = null;
 let settingsPath = null;
 let isNewFile = false;
 
-function init(userDataDir) {
-  settingsPath = path.join(userDataDir, 'settings.json');
+function init(configDir, userDataDir) {
+  try { fs.mkdirSync(configDir, { recursive: true }); } catch (_) { /* 目录可能只读，忽略 */ }
+  settingsPath = path.join(configDir, 'settings.json');
+
+  // 首次迁移：旧版本配置在 AppData，若新位置不存在则复制过来，避免重装后丢失凭据
+  if (!fs.existsSync(settingsPath) && userDataDir) {
+    const oldPath = path.join(userDataDir, 'settings.json');
+    if (fs.existsSync(oldPath)) {
+      try { fs.copyFileSync(oldPath, settingsPath); } catch (_) { /* 忽略 */ }
+    }
+  }
+
   isNewFile = !fs.existsSync(settingsPath);
   cache = load();
 }
