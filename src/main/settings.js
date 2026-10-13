@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 /**
- * 用户设置 + B2 凭据，统一持久化在 userData/settings.json
- * 与 .env 解耦：打包后不携带任何测试数据，用户首次启动在向导中填写。
+ * 用户设置 + B2 凭据，统一持久化在 settings.json
+ * 全部配置由用户首次启动时的向导填写，不依赖任何环境变量。
  */
 
 const DEFAULTS = {
@@ -26,7 +26,6 @@ const DEFAULTS = {
 
 let cache = null;
 let settingsPath = null;
-let isNewFile = false;
 
 function init(configDir, userDataDir) {
   try { fs.mkdirSync(configDir, { recursive: true }); } catch (_) { /* 目录可能只读，忽略 */ }
@@ -40,7 +39,6 @@ function init(configDir, userDataDir) {
     }
   }
 
-  isNewFile = !fs.existsSync(settingsPath);
   cache = load();
 }
 
@@ -59,17 +57,12 @@ function get() {
   return cache;
 }
 
-function isNew() {
-  return isNewFile;
-}
-
 function set(patch) {
   cache = { ...get(), ...patch };
   try {
     if (settingsPath) {
       fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
       fs.writeFileSync(settingsPath, JSON.stringify(cache, null, 2), 'utf-8');
-      isNewFile = false;
     }
   } catch (err) {
     console.error('保存 settings 失败:', err.message);
@@ -77,4 +70,4 @@ function set(patch) {
   return cache;
 }
 
-module.exports = { init, get, set, isNew, DEFAULTS };
+module.exports = { init, get, set, DEFAULTS };

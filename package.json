@@ -11,9 +11,6 @@
   },
   "author": "smmcat",
   "license": "MIT",
-  "dependencies": {
-    "dotenv": "^16.4.5"
-  },
   "devDependencies": {
     "electron": "^31.7.6",
     "electron-builder": "^24.13.3"

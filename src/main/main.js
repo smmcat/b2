@@ -3,35 +3,10 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const dotenv = require('dotenv');
 
 // 必须在创建任何窗口前设置：Windows 任务栏按 AppUserModelID 分组与取图标，
 // 不设置会回退到 Electron 默认图标（固定到任务栏后尤其明显）
 app.setAppUserModelId('com.smm.b2netdisk');
-
-/**
- * 在多个候选位置查找 .env：
- * 1) userData（用户可覆盖，最高优先级）
- * 2) resourcesPath（打包后 extraResources 落点，与 app.asar 同级）
- * 3) app.getAppPath()（asar 内 / 开发期项目根）
- * 4) process.cwd()（兜底）
- */
-function loadEnv() {
-  const candidates = [];
-  try { candidates.push(path.join(app.getPath('userData'), '.env')); } catch (_) {}
-  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, '.env'));
-  try { candidates.push(path.join(app.getAppPath(), '.env')); } catch (_) {}
-  candidates.push(path.join(process.cwd(), '.env'));
-
-  for (const p of candidates) {
-    if (fs.existsSync(p)) {
-      dotenv.config({ path: p });
-      return p;
-    }
-  }
-  return null;
-}
-loadEnv();
 
 const { B2Client } = require('./b2');
 const settings = require('./settings');
@@ -71,13 +46,12 @@ async function refreshUsage(push = true) {
 
 function createB2Client() {
   const s = settings.get();
-  // 优先用用户设置；.env 仅作为开发期兜底（打包后不存在 .env）
   return new B2Client({
-    keyId: s.keyId || process.env.B2_KEY_ID,
-    applicationKey: s.applicationKey || process.env.B2_APP_KEY,
-    bucketId: s.bucketId || process.env.B2_BUCKET_ID,
-    bucketName: s.bucketName || process.env.B2_BUCKET_NAME,
-    shareUrlPrefix: '', // 不再从 .env 注入代理，统一由 settings.proxyBase 控制
+    keyId: s.keyId,
+    applicationKey: s.applicationKey,
+    bucketId: s.bucketId,
+    bucketName: s.bucketName,
+    shareUrlPrefix: '', // 代理统一由 settings.proxyBase 控制
   });
 }
 
@@ -109,10 +83,10 @@ function sendProgress(payload) {
   }
 }
 
-ipcMain.handle('b2:bucketInfo', () => ({
-  bucketName: process.env.B2_BUCKET_NAME || '',
-  shareUrlPrefix: process.env.B2_SHARE_URL || '',
-}));
+ipcMain.handle('b2:bucketInfo', () => {
+  const s = settings.get();
+  return { bucketName: s.bucketName, shareUrlPrefix: s.proxyBase };
+});
 
 ipcMain.handle('b2:listFiles', async (_e, prefix) => {
   try {
@@ -516,17 +490,6 @@ app.whenReady().then(() => {
   // 配置文件存放位置：打包后放安装目录（exe 同级），开发态放项目根目录
   const configDir = app.isPackaged ? path.dirname(process.execPath) : process.cwd();
   settings.init(configDir, app.getPath('userData'));
-
-  // 仅在 settings.json 首次创建时，用 .env 填充默认值（开发便利；打包后无 .env 则跳过）
-  if (settings.isNew()) {
-    const patch = {};
-    if (process.env.B2_KEY_ID) patch.keyId = process.env.B2_KEY_ID;
-    if (process.env.B2_APP_KEY) patch.applicationKey = process.env.B2_APP_KEY;
-    if (process.env.B2_BUCKET_ID) patch.bucketId = process.env.B2_BUCKET_ID;
-    if (process.env.B2_BUCKET_NAME) patch.bucketName = process.env.B2_BUCKET_NAME;
-    if (process.env.B2_SHARE_URL) patch.proxyBase = process.env.B2_SHARE_URL;
-    if (Object.keys(patch).length) settings.set(patch);
-  }
 
   // 凭据完整才创建客户端；否则由渲染层向导引导用户填写
   const s = settings.get();

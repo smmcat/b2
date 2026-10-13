@@ -476,7 +476,7 @@ class B2Client {
    */
   buildFileUrl(b2FileName, settings = {}) {
     const filePath = b2FileName.split('/').map(encodeURIComponent).join('/');
-    // 严格以 settings.proxyBase 为准：显式空串 = 不使用代理（不再回退 .env）
+    // 严格以 settings.proxyBase 为准：显式空串 = 不使用代理
     const proxyBase = String(settings.proxyBase == null ? '' : settings.proxyBase).replace(/\/+$/, '');
     const template = settings.urlTemplate || '{proxyBase}/{filePath}';
 
