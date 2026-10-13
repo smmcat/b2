@@ -116,9 +116,10 @@ class B2Client {
       const body = {
         bucketId: this.bucketId,
         prefix,
-        delimiter,
         maxFileCount: pageSize,
       };
+      // delimiter 必须为单字符；空串会被 B2 拒绝（400），需要递归列举时干脆不传
+      if (delimiter) body.delimiter = delimiter;
       if (startFileName) body.startFileName = startFileName;
 
       const data = await this._callApi('b2_list_file_names', body);
@@ -142,6 +143,85 @@ class B2Client {
       folders: [...folders].sort(),
       files: files.sort((a, b) => a.fileName.localeCompare(b.fileName)),
     };
+  }
+
+  /* ---------------- 分享页配置 ---------------- */
+
+  /**
+   * 递归列出 prefix 下的全部文件（不带 delimiter，一次拿全子路径）
+   * @returns {object[]} B2 文件对象数组
+   */
+  async listAllFiles(prefix = '') {
+    await this._ensureAuth();
+    const files = [];
+    let startFileName = null;
+    for (let i = 0; i < 50; i++) {
+      const body = { bucketId: this.bucketId, prefix, maxFileCount: 1000 };
+      if (startFileName) body.startFileName = startFileName;
+      const data = await this._callApi('b2_list_file_names', body);
+      for (const f of data.files) {
+        if (f.fileName.endsWith('/.folderkeep')) continue;
+        if (f.action !== 'upload') continue;
+        files.push(f);
+      }
+      if (!data.nextFileName) break;
+      startFileName = data.nextFileName;
+    }
+    return files;
+  }
+
+  /**
+   * 上传一段文本内容为小文件（用于 sharedConfig.json）
+   */
+  async uploadText(content, b2FileName, contentType = 'application/json') {
+    const buf = Buffer.from(content, 'utf-8');
+    const sha1 = crypto.createHash('sha1').update(buf).digest('hex');
+    const endpoint = await this._getUploadEndpoint();
+    const doUpload = async (ep) => fetch(ep.uploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: ep.authToken,
+        'X-Bz-File-Name': _encodeB2Name(b2FileName),
+        'Content-Type': contentType,
+        'X-Bz-Content-Sha1': sha1,
+        'Content-Length': String(buf.length),
+      },
+      body: buf,
+    });
+    let res = await doUpload(endpoint);
+    if (res.status === 401 || res.status === 408 || res.status >= 500) {
+      this._uploadEndpoint = null;
+      res = await doUpload(await this._getUploadEndpoint());
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`B2 上传失败 (${res.status}): ${text}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * 读取 B2 上的文本文件（如 sharedConfig.json），不存在返回 null
+   */
+  async downloadText(b2FileName, settings = {}) {
+    await this._ensureAuth();
+    const proxyBase = String(settings.proxyBase == null ? '' : settings.proxyBase).trim();
+    let url, headers;
+    if (proxyBase) {
+      url = this.buildFileUrl(b2FileName, settings);
+      headers = {};
+    } else {
+      const filePath = b2FileName.split('/').map(encodeURIComponent).join('/');
+      url = `${this.downloadUrl}/file/${encodeURIComponent(this.bucketName)}/${filePath}`;
+      headers = { Authorization: this.authToken };
+    }
+    const res = await fetch(url, { headers });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`读取失败 (${res.status}): ${text.slice(0, 200)}`);
+    }
+    return res.text();
   }
 
   /* ---------------- 空间统计 ---------------- */
@@ -438,8 +518,8 @@ class B2Client {
     if (fileId) {
       return this._callApi('b2_delete_file_version', { fileName, fileId });
     }
-    // 没传 fileId 时，先列出再逐个删（用于删除整个文件夹）
-    const { files } = await this.listFiles({ prefix: fileName.endsWith('/') ? fileName : fileName + '/', delimiter: '' });
+    // 没传 fileId 时，递归列出其下所有文件逐个删（用于删除整个文件夹）
+    const files = await this.listAllFiles(fileName.endsWith('/') ? fileName : fileName + '/');
     const results = [];
     for (const f of files) {
       results.push(await this._callApi('b2_delete_file_version', { fileName: f.fileName, fileId: f.fileId }));

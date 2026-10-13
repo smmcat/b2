@@ -89,3 +89,57 @@ html, body { height: 100%; font-family: -apple-system, "Segoe UI", "PingFang SC"
 .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #303133; color: #fff; padding: 10px 20px; border-radius: 4px; z-index: 300; font-size: 13px; box-shadow: 0 2px 12px rgba(0,0,0,.3); }
 .toast.success { background: #67c23a; }
 .toast.error { background: #f56c6c; }
+
+/* 分享页菜单 */
+.share-menu { display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px; }
+.share-menu-item {
+  display: flex; align-items: center; gap: 14px; text-align: left;
+  padding: 14px 16px; border: 1px solid #e4e7ed; border-radius: 10px;
+  background: #fff; cursor: pointer; transition: all .15s;
+}
+.share-menu-item:hover { border-color: #4a7dff; background: #f5f8ff; }
+.share-menu-item .smi-icon { font-size: 22px; }
+.share-menu-item b { display: block; font-size: 14px; color: #303133; margin-bottom: 3px; }
+.share-menu-item small { font-size: 12px; color: #909399; }
+
+/* 文件夹选择器 */
+.pick-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 13px; margin-bottom: 10px; color: #606266; }
+.pick-crumb .crumb { cursor: pointer; color: #4a7dff; padding: 2px 4px; border-radius: 3px; }
+.pick-crumb .crumb:hover { background: #ecf2ff; }
+.pick-crumb .sep { color: #c0c4cc; }
+.pick-list {
+  max-height: 300px; overflow-y: auto; border: 1px solid #e4e7ed;
+  border-radius: 8px; margin-bottom: 14px;
+}
+.pick-item {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  cursor: pointer; font-size: 13px; border-bottom: 1px solid #f5f7fa;
+}
+.pick-item:last-child { border-bottom: none; }
+.pick-item:hover { background: #f5f8ff; }
+.pick-item .pick-enter { margin-left: auto; color: #c0c4cc; font-size: 12px; }
+.pick-item.dim { opacity: .55; }
+.pick-badge { margin-left: auto; font-size: 11px; border-radius: 8px; padding: 1px 8px; flex-shrink: 0; }
+.pick-badge.ok { color: #67c23a; background: #f0f9eb; }
+.pick-badge.none { color: #c0c4cc; background: #f4f4f5; }
+.pick-badge + .pick-enter { margin-left: 8px; }
+#folderPickOk:disabled { opacity: .55; cursor: not-allowed; }
+.pick-empty { padding: 24px; text-align: center; color: #909399; font-size: 13px; }
+
+/* 存档列表 */
+.share-archives { max-height: 360px; overflow-y: auto; margin-bottom: 14px; }
+.archive-item {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border: 1px solid #e4e7ed; border-radius: 8px; margin-bottom: 8px;
+}
+.archive-info { flex: 1; min-width: 0; }
+.archive-folder { font-size: 13px; word-break: break-all; }
+.archive-meta { font-size: 12px; color: #909399; margin-top: 4px; }
+.archive-ops { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* 生成分享页表单 */
+.form-row textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid #dcdfe6; border-radius: 4px;
+  font-size: 13px; font-family: inherit; resize: vertical; box-sizing: border-box;
+}
+.form-row textarea:focus { outline: none; border-color: #4a7dff; }

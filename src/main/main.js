@@ -331,6 +331,172 @@ ipcMain.handle('b2:fetchDataUrl', async (_e, { url }) => {
   return `data:${mime};base64,${buf.toString('base64')}`;
 });
 
+/* ---------------- 分享页（sharedConfig.json + index.html） ---------------- */
+
+const SHARE_MEDIA_EXTS = new Set([
+  'mp3', 'wav', 'ogg', 'oga', 'm4a', 'aac', 'flac',
+  'mp4', 'webm', 'ogv', 'mov', 'm4v', 'mkv',
+]);
+function isShareMedia(name) {
+  return SHARE_MEDIA_EXTS.has((name.split('.').pop() || '').toLowerCase());
+}
+
+function getArchives() {
+  return settings.get().shareArchives || [];
+}
+function saveArchive(entry) {
+  const list = getArchives().filter((a) => a.folder !== entry.folder);
+  list.unshift(entry);
+  settings.set({ shareArchives: list });
+  return list;
+}
+
+// 列出某前缀下的直接子文件夹（供文件夹选择器逐级浏览）
+// withConfigStatus=true 时，额外标注每个文件夹（及当前目录）是否包含 sharedConfig.json
+ipcMain.handle('share:listFolders', async (_e, { prefix, withConfigStatus } = {}) => {
+  try {
+    const data = await b2.listFiles({ prefix: prefix || '' });
+    const result = { ok: true, folders: data.folders.map((name) => ({ name })), hasConfig: false };
+    if (!withConfigStatus) return result;
+
+    // 当前目录是否含 sharedConfig.json
+    result.hasConfig = data.files.some((f) => f.fileName === (prefix || '') + 'sharedConfig.json');
+    // 各子文件夹是否含 sharedConfig.json（并行探测，文件夹数量通常不多）
+    result.folders = await Promise.all(data.folders.map(async (name) => {
+      try {
+        const sub = await b2.listFiles({ prefix: (prefix || '') + name + '/' });
+        return { name, hasConfig: sub.files.some((f) => f.fileName.endsWith('/sharedConfig.json')) };
+      } catch (_) {
+        return { name, hasConfig: false };
+      }
+    }));
+    return result;
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+/**
+ * 创建配置项：遍历目标文件夹，生成 sharedConfig.json 并上传到其根目录。
+ * 结构：{ 子文件夹名: [{ title, url, createTime }...] }
+ *  - 子文件夹按名称排序；每个子文件夹下的媒体文件按创建时间升序
+ *  - 直接放在目标文件夹根部的媒体归入「未分类」
+ */
+ipcMain.handle('share:createConfig', async (_e, { folder }) => {
+  try {
+    if (!b2) return { ok: false, error: '未配置 B2' };
+    const prefix = folder ? (folder.endsWith('/') ? folder : folder + '/') : '';
+    const all = await b2.listAllFiles(prefix);
+    const media = all.filter((f) => isShareMedia(f.fileName) && !f.fileName.endsWith('/sharedConfig.json'));
+
+    const s = settings.get();
+    const groups = {};
+    for (const f of media) {
+      const rel = f.fileName.substring(prefix.length);
+      const idx = rel.indexOf('/');
+      const cat = idx >= 0 ? rel.substring(0, idx) : '未分类';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push({
+        title: rel.substring(idx >= 0 ? idx + 1 : 0),
+        url: b2.buildFileUrl(f.fileName, s),
+        createTime: f.uploadTimestamp || 0,
+      });
+    }
+
+    const config = {};
+    for (const cat of Object.keys(groups).sort((a, b) => a.localeCompare(b, 'zh-CN'))) {
+      config[cat] = groups[cat].sort((a, b) => a.createTime - b.createTime);
+    }
+
+    const jsonName = prefix + 'sharedConfig.json';
+    await b2.uploadText(JSON.stringify(config, null, 2), jsonName);
+
+    const entry = {
+      folder: prefix,
+      title: (getArchives().find((a) => a.folder === prefix) || {}).title || '',
+      notice: (getArchives().find((a) => a.folder === prefix) || {}).notice || '',
+      folderCount: Object.keys(config).length,
+      fileCount: media.length,
+      updatedAt: Date.now(),
+    };
+    saveArchive(entry);
+    return { ok: true, data: entry };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// 读取并校验目标文件夹下的 sharedConfig.json，返回统计与 json 的实际访问链接
+ipcMain.handle('share:readConfig', async (_e, { folder }) => {
+  try {
+    if (!b2) return { ok: false, error: '未配置 B2' };
+    const prefix = folder ? (folder.endsWith('/') ? folder : folder + '/') : '';
+    const jsonName = prefix + 'sharedConfig.json';
+    const text = await b2.downloadText(jsonName, settings.get());
+    if (text == null) return { ok: false, error: '该文件夹下不存在 sharedConfig.json，请先「创建配置项」' };
+
+    // 格式合法性校验：必须是 { 分类名: [{ title, url, createTime }...] } 结构
+    let config;
+    try {
+      config = JSON.parse(text);
+    } catch (_) {
+      return { ok: false, error: 'sharedConfig.json 不是合法的 JSON 文件' };
+    }
+    if (!config || typeof config !== 'object' || Array.isArray(config)) {
+      return { ok: false, error: 'sharedConfig.json 格式不正确：顶层应为 { 分类名: [...] } 对象' };
+    }
+    for (const [cat, arr] of Object.entries(config)) {
+      if (!Array.isArray(arr)) {
+        return { ok: false, error: `sharedConfig.json 格式不正确：分类「${cat}」的值应为数组` };
+      }
+      for (const it of arr) {
+        if (!it || typeof it.title !== 'string' || typeof it.url !== 'string') {
+          return { ok: false, error: `sharedConfig.json 格式不正确：分类「${cat}」中存在缺少 title/url 的条目` };
+        }
+      }
+    }
+
+    const fileCount = Object.values(config).reduce((n, arr) => n + arr.length, 0);
+    // json 的对外访问链接：有代理走代理，否则 B2 原生地址（分享页运行时直接引用）
+    const configUrl = b2.buildFileUrl(jsonName, settings.get());
+    return { ok: true, data: { folderCount: Object.keys(config).length, fileCount, configUrl } };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('share:getArchives', () => ({ ok: true, data: getArchives() }));
+
+ipcMain.handle('share:deleteArchive', (_e, folder) => {
+  settings.set({ shareArchives: getArchives().filter((a) => a.folder !== folder) });
+  return { ok: true };
+});
+
+// 生成分享页后，把标题/公告写回存档
+ipcMain.handle('share:updateArchive', (_e, entry) => {
+  try {
+    return { ok: true, data: saveArchive(entry) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// 把生成的 index.html 保存到用户本地
+ipcMain.handle('share:saveHtml', async (_e, { html }) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: '保存分享页',
+    defaultPath: 'index.html',
+    filters: [{ name: 'HTML 页面', extensions: ['html'] }],
+  });
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  try {
+    fs.writeFileSync(result.filePath, html, 'utf-8');
+    return { ok: true, filePath: result.filePath };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 const _mediaExt = {
   image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'],
   video: ['mp4', 'webm', 'ogv', 'mov', 'm4v', 'mkv'],

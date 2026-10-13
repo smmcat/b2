@@ -18,6 +18,7 @@
       <button id="btnUpload" class="btn primary">⬆ 上传文件</button>
       <button id="btnNewFolder" class="btn">📁 新建文件夹</button>
       <button id="btnRefresh" class="btn">🔄 刷新</button>
+      <button id="btnSharePage" class="btn">🌐 分享页</button>
       <button id="btnSettings" class="btn">⚙ 设置</button>
     </div>
   </header>
@@ -124,9 +125,79 @@
     </div>
   </div>
 
+  <!-- 分享页主菜单 -->
+  <div id="shareMenuModal" class="modal hidden">
+    <div class="modal-box" style="width:420px;">
+      <h3>🌐 分享页</h3>
+      <div class="share-menu">
+        <button id="shareMenuArchives" class="share-menu-item">
+          <span class="smi-icon">📋</span>
+          <span><b>查看已存在分享页</b><small>查看已创建的配置存档记录</small></span>
+        </button>
+        <button id="shareMenuCreate" class="share-menu-item">
+          <span class="smi-icon">🛠</span>
+          <span><b>创建配置项</b><small>选择文件夹，扫描媒体文件生成 sharedConfig.json</small></span>
+        </button>
+        <button id="shareMenuGenerate" class="share-menu-item">
+          <span class="smi-icon">📄</span>
+          <span><b>生成分享页</b><small>引用 sharedConfig.json 生成可部署的 index.html</small></span>
+        </button>
+      </div>
+      <div class="modal-actions">
+        <button id="shareMenuClose" class="btn">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 存档列表 -->
+  <div id="shareArchivesModal" class="modal hidden">
+    <div class="modal-box" style="width:560px;">
+      <h3>📋 已存在分享页</h3>
+      <div id="shareArchivesList" class="share-archives"></div>
+      <div class="modal-actions">
+        <button id="shareArchivesRefreshAll" class="btn">一键更新全部配置</button>
+        <button id="shareArchivesClose" class="btn">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文件夹选择器 -->
+  <div id="folderPickModal" class="modal hidden">
+    <div class="modal-box" style="width:480px;">
+      <h3 id="folderPickTitle">选择文件夹</h3>
+      <div id="folderPickCrumb" class="pick-crumb"></div>
+      <div id="folderPickList" class="pick-list"></div>
+      <div class="modal-actions">
+        <button id="folderPickCancel" class="btn">取消</button>
+        <button id="folderPickOk" class="btn primary">选择当前文件夹</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 生成分享页：标题 / 公告 -->
+  <div id="shareGenModal" class="modal hidden">
+    <div class="modal-box" style="width:480px;">
+      <h3>📄 生成分享页</h3>
+      <div class="hint" id="shareGenFolder" style="margin-bottom:10px;"></div>
+      <div class="form-row">
+        <label>网站标题</label>
+        <input id="shareGenTitle" type="text" placeholder="我的媒体分享" autocomplete="off" />
+      </div>
+      <div class="form-row">
+        <label>公告（可选，支持多行）</label>
+        <textarea id="shareGenNotice" rows="3" placeholder="展示在页面顶部的公告信息"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button id="shareGenCancel" class="btn">取消</button>
+        <button id="shareGenOk" class="btn primary">生成并下载 index.html</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 全局提示 -->
   <div id="toast" class="toast hidden"></div>
 
+  <script src="shareTemplate.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

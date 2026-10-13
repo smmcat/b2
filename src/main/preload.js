@@ -63,4 +63,14 @@ contextBridge.exposeInMainWorld('b2api', {
     ipcRenderer.on('b2:progress', listener);
     return () => ipcRenderer.removeListener('b2:progress', listener);
   },
+
+  // 分享页
+  shareListFolders: (prefix, withConfigStatus) =>
+    ipcRenderer.invoke('share:listFolders', { prefix, withConfigStatus: !!withConfigStatus }),
+  shareCreateConfig: (folder) => ipcRenderer.invoke('share:createConfig', { folder }),
+  shareReadConfig: (folder) => ipcRenderer.invoke('share:readConfig', { folder }),
+  shareGetArchives: () => ipcRenderer.invoke('share:getArchives'),
+  shareDeleteArchive: (folder) => ipcRenderer.invoke('share:deleteArchive', folder),
+  shareUpdateArchive: (entry) => ipcRenderer.invoke('share:updateArchive', entry),
+  shareSaveHtml: (html) => ipcRenderer.invoke('share:saveHtml', { html }),
 });

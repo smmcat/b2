@@ -188,6 +188,7 @@ $('btnUpload').onclick = async () => {
     toast(`成功上传 ${res.uploaded.length} 个文件`, 'success');
   }
   loadList();
+  autoUpdateShareConfig();
 };
 
 $('btnRefresh').onclick = loadList;
@@ -232,7 +233,7 @@ async function deleteFile(file) {
   const baseName = file.fileName.substring(state.prefix.length);
   if (!confirm(`确定删除文件「${baseName}」？此操作不可恢复。`)) return;
   const res = await window.b2api.deleteFile(file.fileName, file.fileId);
-  if (res.ok) { toast('已删除', 'success'); loadList(); }
+  if (res.ok) { toast('已删除', 'success'); loadList(); autoUpdateShareConfig(); }
   else toast('删除失败：' + res.error, 'error');
 }
 
@@ -240,7 +241,7 @@ async function deleteFolder(folder) {
   if (!confirm(`确定删除文件夹「${folder}」及其所有内容？此操作不可恢复。`)) return;
   const prefix = state.prefix + folder + '/';
   const res = await window.b2api.deleteFile(prefix, null);
-  if (res.ok) { toast('文件夹已删除', 'success'); loadList(); }
+  if (res.ok) { toast('文件夹已删除', 'success'); loadList(); autoUpdateShareConfig(); }
   else toast('删除失败：' + res.error, 'error');
 }
 
@@ -264,7 +265,7 @@ $('renameOk').onclick = async () => {
     const oldFull = state.prefix + baseName;
     const newFull = state.prefix + newName;
     const res = await window.b2api.renameFile(oldFull, newFull);
-    if (res.ok) { toast('重命名成功', 'success'); loadList(); }
+    if (res.ok) { toast('重命名成功', 'success'); loadList(); autoUpdateShareConfig(); }
     else toast('重命名失败：' + res.error, 'error');
   } else {
     // 文件夹重命名：遍历其下所有文件，逐个 copy + delete
@@ -474,6 +475,7 @@ async function handleDroppedFiles(files, targetPrefix) {
   }
   toast(`拖拽上传完成：成功 ${okCount}，失败 ${failCount}`, failCount ? 'error' : 'success');
   loadList();
+  autoUpdateShareConfig();
 }
 
 function sendProg(p) {
@@ -524,3 +526,271 @@ window.b2api.onUsageUpdated((u) => renderUsage(u));
     openSettingsModal(true);
   }
 })();
+
+/* ==================== 分享页 ==================== */
+const shareState = {
+  pickPrefix: '',      // 文件夹选择器当前浏览前缀
+  pickCallback: null,  // 选定后的回调
+  pickRequireConfig: false, // 选择器是否要求目标文件夹必须含 sharedConfig.json
+  pickHasConfig: false,     // 当前浏览目录是否含 sharedConfig.json
+  genFolder: null,     // 待生成分享页的文件夹（规范化，带结尾 / 或 ''）
+  genStats: null,      // readConfig 返回的统计
+  genConfigUrl: '',    // sharedConfig.json 的实际访问链接（写入生成的 html）
+};
+
+function normalizeFolder(f) {
+  if (!f) return '';
+  return f.endsWith('/') ? f : f + '/';
+}
+
+/* ---------- 主菜单 ---------- */
+$('btnSharePage').onclick = () => $('shareMenuModal').classList.remove('hidden');
+$('shareMenuClose').onclick = () => $('shareMenuModal').classList.add('hidden');
+
+/* ---------- 文件夹选择器 ---------- */
+function openFolderPicker(title, startPrefix, cb, options = {}) {
+  $('folderPickTitle').textContent = title;
+  shareState.pickPrefix = startPrefix || '';
+  shareState.pickCallback = cb;
+  shareState.pickRequireConfig = !!options.requireConfig;
+  shareState.pickHasConfig = false;
+  $('folderPickModal').classList.remove('hidden');
+  renderPickList();
+}
+
+function updatePickOkState() {
+  const okBtn = $('folderPickOk');
+  if (!shareState.pickRequireConfig) {
+    okBtn.disabled = false;
+    okBtn.textContent = '选择当前文件夹';
+    return;
+  }
+  okBtn.disabled = !shareState.pickHasConfig;
+  okBtn.textContent = shareState.pickHasConfig
+    ? '选择当前文件夹（✓ 含 sharedConfig.json）'
+    : '当前文件夹没有 sharedConfig.json';
+}
+
+async function renderPickList() {
+  const crumb = $('folderPickCrumb');
+  const list = $('folderPickList');
+  crumb.innerHTML = '';
+  list.innerHTML = '<div class="pick-empty">加载中…</div>';
+  updatePickOkState();
+
+  // 面包屑
+  const root = document.createElement('span');
+  root.className = 'crumb root';
+  root.textContent = '全部文件';
+  root.onclick = () => { shareState.pickPrefix = ''; renderPickList(); };
+  crumb.appendChild(root);
+  let acc = '';
+  for (const p of (shareState.pickPrefix ? shareState.pickPrefix.replace(/\/$/, '').split('/') : [])) {
+    acc += p + '/';
+    const sep = document.createElement('span');
+    sep.className = 'sep'; sep.textContent = '›';
+    crumb.appendChild(sep);
+    const c = document.createElement('span');
+    c.className = 'crumb'; c.textContent = p;
+    const prefix = acc;
+    c.onclick = () => { shareState.pickPrefix = prefix; renderPickList(); };
+    crumb.appendChild(c);
+  }
+
+  const res = await window.b2api.shareListFolders(shareState.pickPrefix, shareState.pickRequireConfig);
+  list.innerHTML = '';
+  if (!res.ok) {
+    list.innerHTML = `<div class="pick-empty">加载失败：${res.error}</div>`;
+    return;
+  }
+
+  shareState.pickHasConfig = !!res.hasConfig;
+  updatePickOkState();
+
+  if (!res.folders.length) {
+    list.innerHTML = `<div class="pick-empty">${
+      shareState.pickRequireConfig && !shareState.pickHasConfig
+        ? '此目录及子目录均未找到 sharedConfig.json，请返回上级或先「创建配置项」'
+        : '此目录下没有子文件夹'
+    }</div>`;
+    return;
+  }
+  for (const folder of res.folders) {
+    const item = document.createElement('div');
+    item.className = 'pick-item';
+    const badge = shareState.pickRequireConfig
+      ? (folder.hasConfig
+        ? '<span class="pick-badge ok">✓ 含配置</span>'
+        : '<span class="pick-badge none">无配置</span>')
+      : '';
+    item.innerHTML = `<span class="icon">📁</span><span></span>${badge}<span class="pick-enter">进入 ›</span>`;
+    item.querySelector('span:nth-child(2)').textContent = folder.name;
+    if (shareState.pickRequireConfig && !folder.hasConfig) item.classList.add('dim');
+    item.onclick = () => {
+      shareState.pickPrefix = shareState.pickPrefix + folder.name + '/';
+      renderPickList();
+    };
+    list.appendChild(item);
+  }
+}
+
+$('folderPickCancel').onclick = () => $('folderPickModal').classList.add('hidden');
+$('folderPickOk').onclick = () => {
+  if (shareState.pickRequireConfig && !shareState.pickHasConfig) {
+    toast('当前文件夹没有 sharedConfig.json，请选择带「✓ 含配置」标记的文件夹', 'error');
+    return;
+  }
+  $('folderPickModal').classList.add('hidden');
+  const cb = shareState.pickCallback;
+  shareState.pickCallback = null;
+  if (cb) cb(normalizeFolder(shareState.pickPrefix));
+};
+
+/* ---------- 创建配置项 ---------- */
+$('shareMenuCreate').onclick = () => {
+  $('shareMenuModal').classList.add('hidden');
+  openFolderPicker('选择要分享的文件夹（将在其根目录生成 sharedConfig.json）', '', async (folder) => {
+    toast('正在扫描媒体文件并生成配置…');
+    const res = await window.b2api.shareCreateConfig(folder);
+    if (!res.ok) { toast('创建失败：' + res.error, 'error'); return; }
+    const d = res.data;
+    toast(`配置已生成：${d.folderCount} 个分类 · ${d.fileCount} 个媒体文件`, 'success');
+  });
+};
+
+/* ---------- 生成分享页 ---------- */
+$('shareMenuGenerate').onclick = () => {
+  $('shareMenuModal').classList.add('hidden');
+  openFolderPicker('选择 sharedConfig.json 所在的文件夹', '', (folder) => openShareGen(folder), { requireConfig: true });
+};
+
+async function openShareGen(folder) {
+  const res = await window.b2api.shareReadConfig(folder);
+  if (!res.ok) { toast(res.error, 'error'); return; }
+  shareState.genFolder = folder;
+  shareState.genStats = res.data;
+  shareState.genConfigUrl = res.data.configUrl;
+
+  // 预填存档中的标题/公告
+  const arc = (await window.b2api.shareGetArchives()).data.find((a) => a.folder === folder);
+  $('shareGenFolder').textContent =
+    `引用配置：${res.data.configUrl}（${res.data.folderCount} 个分类 · ${res.data.fileCount} 个媒体文件）`;
+  $('shareGenTitle').value = (arc && arc.title) || '';
+  $('shareGenNotice').value = (arc && arc.notice) || '';
+  $('shareGenModal').classList.remove('hidden');
+  $('shareGenTitle').focus();
+}
+
+$('shareGenCancel').onclick = () => $('shareGenModal').classList.add('hidden');
+$('shareGenOk').onclick = async () => {
+  const title = $('shareGenTitle').value.trim() || '媒体分享';
+  const notice = $('shareGenNotice').value.trim();
+  const html = buildShareHtml({ title, notice, configUrl: shareState.genConfigUrl });
+  const res = await window.b2api.shareSaveHtml(html);
+  if (res.canceled) return;
+  if (!res.ok) { toast('保存失败：' + res.error, 'error'); return; }
+  // 标题/公告写回存档，便于下次更新
+  await window.b2api.shareUpdateArchive({
+    folder: shareState.genFolder,
+    title,
+    notice,
+    folderCount: shareState.genStats.folderCount,
+    fileCount: shareState.genStats.fileCount,
+    updatedAt: Date.now(),
+  });
+  $('shareGenModal').classList.add('hidden');
+  toast(`分享页已保存：${res.filePath}（与 sharedConfig.json 部署到同一目录即可）`, 'success');
+};
+
+/* ---------- 查看已存在分享页 ---------- */
+$('shareMenuArchives').onclick = () => {
+  $('shareMenuModal').classList.add('hidden');
+  renderArchives();
+  $('shareArchivesModal').classList.remove('hidden');
+};
+$('shareArchivesClose').onclick = () => $('shareArchivesModal').classList.add('hidden');
+
+/* ---------- 自动同步分享配置 ---------- */
+// 上传/删除/重命名后调用：当前目录若属于某个分享存档范围，则后台自动重新生成其 sharedConfig.json
+async function findMatchingArchive() {
+  const res = await window.b2api.shareGetArchives();
+  const list = (res && res.ok) ? res.data : [];
+  let best = null;
+  for (const a of list) {
+    const f = a.folder || '';
+    if (state.prefix === f || state.prefix.startsWith(f)) {
+      if (!best || f.length > (best.folder || '').length) best = a; // 取最深层匹配的存档
+    }
+  }
+  return best;
+}
+
+async function autoUpdateShareConfig() {
+  try {
+    const arc = await findMatchingArchive();
+    if (!arc) return;
+    const r = await window.b2api.shareCreateConfig(arc.folder);
+    if (r.ok) toast(`已同步更新分享页配置（${r.data.fileCount} 个媒体）`, 'success');
+  } catch (_) { /* 静默失败，不影响主流程 */ }
+}
+
+/* ---------- 一键更新全部配置 ---------- */
+$('shareArchivesRefreshAll').onclick = async () => {
+  const res = await window.b2api.shareGetArchives();
+  const list = (res && res.ok) ? res.data : [];
+  if (!list.length) { toast('暂无存档记录'); return; }
+  toast(`正在更新全部 ${list.length} 个配置…`);
+  let ok = 0, fail = 0;
+  for (const a of list) {
+    const r = await window.b2api.shareCreateConfig(a.folder);
+    if (r.ok) ok++; else fail++;
+  }
+  toast(`更新完成：成功 ${ok} 个${fail ? `，失败 ${fail} 个` : ''}`, fail ? 'error' : 'success');
+  renderArchives();
+};
+
+async function renderArchives() {
+  const box = $('shareArchivesList');
+  box.innerHTML = '<div class="pick-empty">加载中…</div>';
+  const res = await window.b2api.shareGetArchives();
+  const list = (res && res.ok) ? res.data : [];
+  box.innerHTML = '';
+  if (!list.length) {
+    box.innerHTML = '<div class="pick-empty">暂无存档记录，请先「创建配置项」</div>';
+    return;
+  }
+  for (const a of list) {
+    const div = document.createElement('div');
+    div.className = 'archive-item';
+    div.innerHTML = `
+      <div class="archive-info">
+        <div class="archive-folder">📁 <b></b></div>
+        <div class="archive-meta">
+          ${a.folderCount} 个分类 · ${a.fileCount} 个媒体 · 更新于 ${fmtTime(a.updatedAt)}
+          ${a.title ? ` · 标题「${a.title}」` : ''}
+        </div>
+      </div>
+      <div class="archive-ops">
+        <button class="op-btn" data-act="gen">生成分享页</button>
+        <button class="op-btn" data-act="recreate">更新配置</button>
+        <button class="op-btn danger" data-act="del">删除记录</button>
+      </div>`;
+    div.querySelector('b').textContent = a.folder || '/（桶根目录）';
+    div.querySelector('[data-act=gen]').onclick = () => {
+      $('shareArchivesModal').classList.add('hidden');
+      openShareGen(a.folder);
+    };
+    div.querySelector('[data-act=recreate]').onclick = async () => {
+      toast('正在重新扫描并更新配置…');
+      const r = await window.b2api.shareCreateConfig(a.folder);
+      if (r.ok) { toast(`配置已更新：${r.data.fileCount} 个媒体文件`, 'success'); renderArchives(); }
+      else toast('更新失败：' + r.error, 'error');
+    };
+    div.querySelector('[data-act=del]').onclick = async () => {
+      if (!confirm(`删除「${a.folder}」的存档记录？（不会删除云端的 sharedConfig.json）`)) return;
+      await window.b2api.shareDeleteArchive(a.folder);
+      renderArchives();
+    };
+    box.appendChild(div);
+  }
+}
