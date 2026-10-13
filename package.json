@@ -1,6 +1,6 @@
 {
   "name": "b2-netdisk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "基于 Backblaze B2 存储桶的网盘客户端 (Node.js + Electron)",
   "main": "src/main/main.js",
   "scripts": {
