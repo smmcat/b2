@@ -70,6 +70,15 @@ function buildShareHtml({ title, notice, configUrl }) {
   .item .item-time { font-size: 12px; color: #a8abb2; margin-bottom: 8px; }
   .item audio, .item video { width: 100%; border-radius: 8px; outline: none; }
   .item video { max-height: 320px; background: #000; }
+  .item img {
+    display: block; max-width: 100%; max-height: 420px; border-radius: 8px;
+    cursor: zoom-in; background: #f0f2f5;
+  }
+  .item .dl-btn {
+    display: inline-block; padding: 8px 18px; border-radius: 8px;
+    background: #07c160; color: #fff; text-decoration: none; font-size: 13px;
+  }
+  .item .dl-btn:hover { background: #06ad56; }
   .sort-bar {
     display: flex; align-items: center; gap: 6px;
     padding: 10px 20px 0; font-size: 12px; color: #909399;
@@ -96,6 +105,8 @@ function buildShareHtml({ title, notice, configUrl }) {
   var CONFIG_URL = "${safeConfigUrl}";
   var AUDIO = { mp3: 1, wav: 1, ogg: 1, oga: 1, m4a: 1, aac: 1, flac: 1 };
   var VIDEO = { mp4: 1, webm: 1, ogv: 1, mov: 1, m4v: 1, mkv: 1 };
+  var IMAGE = { jpg: 1, jpeg: 1, png: 1, gif: 1, webp: 1, bmp: 1, svg: 1, avif: 1, ico: 1 };
+  var ARCHIVE = { zip: 1, rar: 1, '7z': 1, tar: 1, gz: 1, tgz: 1, bz2: 1, xz: 1 };
   function ext(url) {
     var clean = url.split('?')[0];
     return (clean.split('.').pop() || '').toLowerCase();
@@ -124,13 +135,13 @@ function buildShareHtml({ title, notice, configUrl }) {
         app.innerHTML = '<div class="status">暂无内容</div>';
         return;
       }
-      cats.forEach(function (cat) {
+      cats.forEach(function (cat, idx) {
         var items = Array.isArray(config[cat]) ? config[cat].slice() : [];
         var sortState = { key: 'time', dir: 'asc' }; // 默认：上传时间 · 递增
 
         var details = document.createElement('details');
         details.className = 'category';
-        details.open = true;
+        details.open = idx === 0; // 只展开首个分类，其余默认折叠
         var summary = document.createElement('summary');
         summary.innerHTML = '<span class="arrow">▶</span><span>' + esc(cat) + '</span>' +
           '<span class="count">' + items.length + ' 个</span>';
@@ -171,7 +182,12 @@ function buildShareHtml({ title, notice, configUrl }) {
               ? '<audio controls preload="none" src="' + esc(it.url) + '"></audio>'
               : (VIDEO[e]
                 ? '<video controls preload="none" src="' + esc(it.url) + '"></video>'
-                : '<a href="' + esc(it.url) + '" target="_blank" rel="noopener">打开/下载</a>');
+                : (IMAGE[e]
+                  ? '<a href="' + esc(it.url) + '" target="_blank" rel="noopener" title="点击查看原图">' +
+                    '<img loading="lazy" src="' + esc(it.url) + '" alt="' + esc(it.title) + '"></a>'
+                  : (ARCHIVE[e]
+                    ? '<a class="dl-btn" href="' + esc(it.url) + '" download rel="noopener">⬇ 下载压缩包</a>'
+                    : '<a href="' + esc(it.url) + '" target="_blank" rel="noopener">打开/下载</a>')));
             div.innerHTML = '<div class="item-title">' + esc(it.title) + '</div>' +
               '<div class="item-time">' + fmtTime(it.createTime) + '</div>' + player;
             wrap.appendChild(div);

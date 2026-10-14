@@ -84,6 +84,74 @@ b2/
 
 ---
 
+##  设置代理（Cloudflare）
+
+B2 的下载域名（如 `f005.backblazeb2.com`）在部分网络环境会被 DNS 污染（解析到 `127.0.0.1`）导致无法直连下载。用 Cloudflare 免费套餐即可自建代理，同时享受 Cloudflare 与 Backblaze 带宽联盟带来的**免流出流量**。全程无需 Worker，仅用 DNS + URL 重写规则。
+
+### 原理
+
+浏览器 / 软件 → `b2.你的域名`（Cloudflare）→ 重写路径加 `/file/桶名` 前缀 → 回源 B2 下载域名（CNAME 对接，公开桶免鉴权）。
+
+### 前提
+
+- 一个已接入 Cloudflare 的域名（NS 托管）
+- B2 桶可见性为 **Public**（公开桶才能免鉴权下载）
+- 拿到你账号的 B2 下载域名：B2 控制台任意文件详情里的 Friendly URL，域名部分形如 `f005.backblazeb2.com`（各账号不同）
+
+### 第 1 步：DNS 记录
+
+「DNS → 记录」添加：
+
+| 类型 | 名称 | 目标 | 代理状态 |
+|---|---|---|---|
+| CNAME | `b2`（即 `b2.你的域名`） | `f005.backblazeb2.com`（换成你的下载域名） | **已代理**（橙色云，必须） |
+
+### 第 2 步：URL 重写规则（两条，互斥）
+
+「规则 → 概述 → 创建规则 → URL 重写规则」，建**两条**规则。注意：多条规则同时命中时会**全部执行、后一条覆盖前一条**，因此必须用匹配条件保持互斥。
+
+**规则 A：按版本下载**（带 `fileId=` 的请求）
+
+- 匹配：自定义筛选表达式
+
+  ```
+  (http.host eq "b2.你的域名" and http.request.uri.query contains "fileId=")
+  ```
+
+  （图形界面：主机名 等于 `b2.你的域名`，And → URI 查询字符串 包含 `fileId=`）
+- 路径：重写到… → **Static** → `/b2api/v2/b2_download_file_by_id`
+- 查询：**保留**
+
+> B2 的友好下载 URL 会忽略 `?fileId=` 参数（永远返回最新版），按版本下载必须改写到 `b2_download_file_by_id` 端点。
+
+**规则 B：普通下载**（加桶名前缀）
+
+- 匹配：自定义筛选表达式
+
+  ```
+  (http.host eq "b2.你的域名" and not http.request.uri.query contains "fileId=")
+  ```
+
+  （图形界面：主机名 等于 `b2.你的域名`，And → URI 查询字符串 **不包含** `fileId=`）
+- 路径：重写到… → **Dynamic** → `concat("/file/你的桶名", http.request.uri.path)`
+- 查询：**保留**
+
+### 第 3 步（可选）：允许跨域
+
+若要把代理文件用于网页 `fetch`（如本软件生成的分享页实时读取 `sharedConfig.json`）：「规则 → 修改响应标头」新增规则，条件主机名等于 `b2.你的域名`，设置静态响应头 `Access-Control-Allow-Origin: *`。
+
+### 第 4 步：验证
+
+```powershell
+curl.exe -I "https://b2.你的域名/某个真实文件路径"
+```
+
+返回 `200` 且带 `x-bz-file-name` 响应头即成功。版本下载可再验证 `?fileId=某版本ID` 是否返回对应版本（比对响应头 `x-bz-file-id`）。
+
+最后在软件「⚙ 设置 → 代理基地址」填入 `https://b2.你的域名` 即可。
+
+---
+
 ##  开发运行
 
 ```powershell
@@ -129,4 +197,4 @@ npm run build    # 生成 dist\B2NetDisk Setup 1.0.0.exe
 
 - **关于「剩余空间」**：B2 是按使用量付费、容量无上限的对象存储，无配额概念，因此只统计「已用空间」，不存在「剩余空间」。
 - **空间统计**：B2 无官方用量接口，已用空间通过全量遍历文件累加 `contentLength` 得到；文件极多时统计较慢，故采用后台异步 + 本地缓存。
-- **代理建议**：若直连下载出现 `fetch failed`（常见于网络环境 DNS 劫持 B2 下载域名），在设置中配置 Cloudflare 代理即可解决，同时实现免流。
+- **代理建议**：若直连下载出现 `fetch failed`（常见于网络环境 DNS 劫持 B2 下载域名），按上文「  设置代理（Cloudflare）」配置即可解决，同时实现免流。

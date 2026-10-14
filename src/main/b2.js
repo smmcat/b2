@@ -227,8 +227,9 @@ class B2Client {
   /* ---------------- 空间统计 ---------------- */
 
   /**
-   * 遍历桶内全部当前文件，累加得到已用空间。
-   * B2 无官方用量接口，只能全量遍历 b2_list_file_names（不带 delimiter）。
+   * 遍历桶内全部文件版本（含历史版本），累加得到已用空间。
+   * B2 无官方用量接口，只能全量遍历 b2_list_file_versions；
+   * 每个历史版本都是完整副本，均计入存储与计费。
    * @param {(progress:{bytes:number,fileCount:number})=>void} [onProgress]
    * @returns {{bytes:number, fileCount:number, computedAt:number}}
    */
@@ -237,21 +238,27 @@ class B2Client {
     let bytes = 0;
     let fileCount = 0;
     let startFileName = null;
+    let startFileId = null;
     const pageSize = 1000;
 
     while (true) {
       const body = { bucketId: this.bucketId, maxFileCount: pageSize };
-      if (startFileName) body.startFileName = startFileName;
-      const data = await this._callApi('b2_list_file_names', body);
+      if (startFileName) {
+        body.startFileName = startFileName;
+        body.startFileId = startFileId;
+      }
+      const data = await this._callApi('b2_list_file_versions', body);
       for (const f of data.files) {
+        if (f.action !== 'upload') continue; // 跳过隐藏标记等
         // B2 返回的大小字段为 contentLength（兼容 size）
         const sz = Number(f.contentLength != null ? f.contentLength : f.size) || 0;
         bytes += sz;
-        if (f.action === 'upload') fileCount += 1;
+        fileCount += 1;
       }
       onProgress && onProgress({ bytes, fileCount });
       if (!data.nextFileName) break;
       startFileName = data.nextFileName;
+      startFileId = data.nextFileId;
     }
 
     return { bytes, fileCount, computedAt: Date.now() };
@@ -405,15 +412,20 @@ class B2Client {
    * 下载文件到本地路径（流式，支持进度回调）
    * 若配置了代理则优先走代理（公开访问，免鉴权），否则走 B2 直链并携带鉴权头。
    */
-  async downloadFile(b2FileName, savePath, onProgress, settings = {}, signal) {
+  async downloadFile(b2FileName, savePath, onProgress, settings = {}, signal, fileId) {
     await this._ensureAuth();
     const proxyBase = String(settings.proxyBase == null ? '' : settings.proxyBase).trim();
     const filePath = b2FileName.split('/').map(encodeURIComponent).join('/');
 
     let url, needsAuth;
     if (proxyBase) {
-      url = this.buildFileUrl(b2FileName, settings);
+      // 指定 fileId 时以 query 形式下载历史版本（依赖代理转发 query string）
+      url = this.buildFileUrl(b2FileName, settings) + (fileId ? `?fileId=${encodeURIComponent(fileId)}` : '');
       needsAuth = false;
+    } else if (fileId) {
+      // 无代理：历史版本走 b2_download_file_by_id
+      url = `${this.downloadUrl}/b2api/v2/b2_download_file_by_id?fileId=${encodeURIComponent(fileId)}`;
+      needsAuth = true;
     } else {
       url = `${this.downloadUrl}/file/${encodeURIComponent(this.bucketName)}/${filePath}`;
       needsAuth = true;
@@ -507,6 +519,46 @@ class B2Client {
     }
     const filePath = b2FileName.split('/').map(encodeURIComponent).join('/');
     return `${this.downloadUrl}/file/${encodeURIComponent(this.bucketName)}/${filePath}?Authorization=${encodeURIComponent(this.authToken)}`;
+  }
+
+  /* ---------------- 文件版本 ---------------- */
+
+  /**
+   * 列出 prefix 直接子文件的全部历史版本（b2_list_file_versions，不支持 delimiter）
+   * @param {string} prefix 当前目录前缀
+   * @returns {Object} { fileName: [version...] }，版本按上传时间倒序（最新在前），
+   *   每项含 fileId / fileName / uploadTimestamp / contentLength
+   */
+  async listFileVersions(prefix = '') {
+    await this._ensureAuth();
+    const map = {};
+    let startFileName = null;
+    let startFileId = null;
+
+    // 单次会话最多翻 20 页，避免超大目录卡住
+    for (let i = 0; i < 20; i++) {
+      const body = { bucketId: this.bucketId, prefix, maxFileCount: 1000 };
+      if (startFileName) {
+        body.startFileName = startFileName;
+        body.startFileId = startFileId;
+      }
+      const data = await this._callApi('b2_list_file_versions', body);
+      for (const f of data.files) {
+        if (f.action !== 'upload') continue; // 跳过隐藏标记
+        if (f.fileName.endsWith('/.folderkeep')) continue;
+        const rel = f.fileName.substring(prefix.length);
+        if (rel.includes('/')) continue; // 只保留当前目录直接子文件
+        (map[f.fileName] = map[f.fileName] || []).push(f);
+      }
+      if (!data.nextFileName) break;
+      startFileName = data.nextFileName;
+      startFileId = data.nextFileId;
+    }
+
+    for (const arr of Object.values(map)) {
+      arr.sort((a, b) => (b.uploadTimestamp || 0) - (a.uploadTimestamp || 0));
+    }
+    return map;
   }
 
   /* ---------------- 删除 / 重命名 ---------------- */

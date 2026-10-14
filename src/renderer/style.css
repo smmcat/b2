@@ -43,6 +43,17 @@ html, body { height: 100%; font-family: -apple-system, "Segoe UI", "PingFang SC"
 .file-row .op-btn:hover { background: #409eff; color: #fff; }
 .file-row .op-btn.danger:hover { background: #f56c6c; }
 
+/* 文件历史版本 */
+.ver-expander { width: 16px; flex-shrink: 0; text-align: center; color: #c0c4cc; font-size: 12px; visibility: hidden; user-select: none; }
+.ver-expander.show { visibility: visible; cursor: pointer; color: #909399; }
+.ver-expander.show:hover { color: #409eff; }
+.ver-badge { flex-shrink: 0; margin-left: 2px; padding: 1px 6px; border-radius: 8px; background: #ecf5ff; color: #409eff; font-size: 11px; line-height: 16px; }
+.version-row { background: #fafbfc; }
+.version-row:hover { background: #f0f4f8; }
+.version-row .col-name { padding-left: 34px; }
+.ver-label { color: #909399; font-size: 12px; padding: 1px 8px; border: 1px solid #e4e7ed; border-radius: 3px; background: #fff; }
+.ver-label.latest { color: #67c23a; border-color: #e1f3d8; background: #f0f9eb; }
+
 .empty-tip, .loading-tip { text-align: center; padding: 80px 20px; color: #909399; }
 .empty-icon { font-size: 60px; margin-bottom: 16px; }
 

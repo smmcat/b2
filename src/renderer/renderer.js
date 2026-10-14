@@ -7,6 +7,8 @@ const state = {
   prefix: '',          // 当前目录前缀，如 '' 或 'docs/2024/'
   files: [],
   folders: [],
+  versions: {},        // fileName -> [version...]（多版本文件的历史版本，按时间倒序）
+  expandedVersions: new Set(), // 已展开版本列表的 fileName
   renameTarget: null,  // { type:'file'|'folder', name }
   progress: new Map(), // key -> { type, name, loaded, total, phase }
 };
@@ -99,6 +101,11 @@ function renderList() {
   }
   for (const file of state.files) {
     list.appendChild(makeFileRow(file));
+    // 已展开的多版本文件：在文件行下方追加各历史版本行
+    const versions = state.versions[file.fileName] || [];
+    if (versions.length > 1 && state.expandedVersions.has(file.fileName)) {
+      versions.forEach((v, idx) => list.appendChild(makeVersionRow(file, v, idx === 0)));
+    }
   }
 }
 
@@ -128,9 +135,12 @@ function makeFileRow(file) {
   row.className = 'file-row';
   const baseName = file.fileName.substring(state.prefix.length);
   const kind = mediaKind(baseName);
+  const versions = state.versions[file.fileName] || [];
+  const multi = versions.length > 1;
+  const expanded = state.expandedVersions.has(file.fileName);
   const previewBtn = kind ? `<button class="op-btn" data-act="preview">预览</button>` : '';
   row.innerHTML = `
-    <div class="col-name"><span class="icon"></span><span class="fname"></span></div>
+    <div class="col-name"><span class="ver-expander${multi ? ' show' : ''}">${expanded ? '▾' : '▸'}</span><span class="icon"></span><span class="fname"></span>${multi ? `<span class="ver-badge">(${versions.length})</span>` : ''}</div>
     <div class="col-size"></div>
     <div class="col-time"></div>
     <div class="col-op">
@@ -138,7 +148,7 @@ function makeFileRow(file) {
       <button class="op-btn" data-act="download">下载</button>
       <button class="op-btn" data-act="share">分享</button>
       <button class="op-btn" data-act="rename">重命名</button>
-      <button class="op-btn danger" data-act="delete">删除</button>
+      <button class="op-btn danger" data-act="delete">${multi ? '删除所有' : '删除'}</button>
     </div>`;
   row.querySelector('.icon').textContent = fileIcon(baseName, false);
   row.querySelector('.fname').textContent = baseName;
@@ -150,8 +160,37 @@ function makeFileRow(file) {
   row.querySelector('[data-act=share]').onclick = () => shareFile(file);
   row.querySelector('[data-act=rename]').onclick = () => openRenameModal('file', baseName);
   row.querySelector('[data-act=delete]').onclick = () => deleteFile(file);
+  // 多版本文件：点击箭头展开/收起历史版本列表
+  if (multi) {
+    row.querySelector('.ver-expander').onclick = () => {
+      if (expanded) state.expandedVersions.delete(file.fileName);
+      else state.expandedVersions.add(file.fileName);
+      renderList();
+    };
+  }
   // 双击：媒体文件打开预览，其余不做特殊处理
   if (kind) row.ondblclick = () => openPreview(file);
+  return row;
+}
+
+// 单个历史版本行（展示在展开的文件行下方）
+function makeVersionRow(file, ver, isLatest) {
+  const row = document.createElement('div');
+  row.className = 'file-row version-row';
+  row.innerHTML = `
+    <div class="col-name"><span class="ver-label${isLatest ? ' latest' : ''}">${isLatest ? '当前版本' : '历史版本'}</span></div>
+    <div class="col-size"></div>
+    <div class="col-time"></div>
+    <div class="col-op">
+      <button class="op-btn" data-act="dlVer">下载</button>
+      <button class="op-btn" data-act="shareVer">分享</button>
+      <button class="op-btn danger" data-act="delVer">删除</button>
+    </div>`;
+  row.querySelector('.col-size').textContent = fmtSize(ver.contentLength != null ? ver.contentLength : ver.size);
+  row.querySelector('.col-time').textContent = fmtTime(ver.uploadTimestamp);
+  row.querySelector('[data-act=dlVer]').onclick = () => downloadVersion(file, ver);
+  row.querySelector('[data-act=shareVer]').onclick = () => shareFile(file, ver.fileId);
+  row.querySelector('[data-act=delVer]').onclick = () => deleteVersion(file, ver);
   return row;
 }
 
@@ -159,7 +198,11 @@ function makeFileRow(file) {
 async function loadList() {
   $('loadingTip').classList.remove('hidden');
   $('fileList').innerHTML = '';
-  const res = await window.b2api.listFiles(state.prefix);
+  // 版本信息拉取失败不阻塞文件列表展示
+  const [res, verRes] = await Promise.all([
+    window.b2api.listFiles(state.prefix),
+    window.b2api.listFileVersions(state.prefix).catch(() => ({ ok: false })),
+  ]);
   $('loadingTip').classList.add('hidden');
   if (!res.ok) {
     toast('加载失败：' + res.error, 'error');
@@ -168,6 +211,7 @@ async function loadList() {
     state.folders = res.data.folders;
     state.files = res.data.files;
   }
+  state.versions = (verRes && verRes.ok) ? verRes.data : {};
   renderBreadcrumb();
   renderList();
 }
@@ -218,8 +262,16 @@ async function downloadFile(file) {
   // 成功入队后，完成/失败提示由进度事件统一推送
 }
 
-async function shareFile(file) {
-  const res = await window.b2api.getShareUrl(file.fileName);
+// 下载指定历史版本
+async function downloadVersion(file, ver) {
+  const baseName = file.fileName.substring(state.prefix.length);
+  const res = await window.b2api.downloadFile(file.fileName, baseName, ver.fileId);
+  if (res.canceled) return;
+  if (!res.ok && res.error) toast('下载失败：' + res.error, 'error');
+}
+
+async function shareFile(file, fileId) {
+  const res = await window.b2api.getShareUrl(file.fileName, fileId);
   if (!res.ok) { toast('获取失败：' + res.error, 'error'); return; }
   try {
     await navigator.clipboard.writeText(res.url);
@@ -231,9 +283,33 @@ async function shareFile(file) {
 
 async function deleteFile(file) {
   const baseName = file.fileName.substring(state.prefix.length);
+  const versions = state.versions[file.fileName] || [];
+  if (versions.length > 1) {
+    // 多版本文件：删除所有版本
+    if (!confirm(`「${baseName}」共有 ${versions.length} 个版本，确定全部删除？此操作不可恢复。`)) return;
+    let ok = 0, fail = 0;
+    for (const v of versions) {
+      const r = await window.b2api.deleteFile(file.fileName, v.fileId);
+      if (r.ok) ok++; else fail++;
+    }
+    state.expandedVersions.delete(file.fileName);
+    toast(fail ? `删除完成：成功 ${ok}，失败 ${fail}` : `已删除全部 ${ok} 个版本`, fail ? 'error' : 'success');
+    loadList();
+    autoUpdateShareConfig();
+    return;
+  }
   if (!confirm(`确定删除文件「${baseName}」？此操作不可恢复。`)) return;
   const res = await window.b2api.deleteFile(file.fileName, file.fileId);
   if (res.ok) { toast('已删除', 'success'); loadList(); autoUpdateShareConfig(); }
+  else toast('删除失败：' + res.error, 'error');
+}
+
+// 删除单个历史版本
+async function deleteVersion(file, ver) {
+  const baseName = file.fileName.substring(state.prefix.length);
+  if (!confirm(`确定删除「${baseName}」的该版本（上传于 ${fmtTime(ver.uploadTimestamp)}）？此操作不可恢复。`)) return;
+  const res = await window.b2api.deleteFile(file.fileName, ver.fileId);
+  if (res.ok) { toast('已删除该版本', 'success'); loadList(); autoUpdateShareConfig(); }
   else toast('删除失败：' + res.error, 'error');
 }
 

@@ -12,14 +12,17 @@ contextBridge.exposeInMainWorld('b2api', {
   // 列目录
   listFiles: (prefix) => ipcRenderer.invoke('b2:listFiles', prefix),
 
+  // 列出当前目录文件的历史版本（{ fileName: [version...] }）
+  listFileVersions: (prefix) => ipcRenderer.invoke('b2:listFileVersions', prefix),
+
   // 上传（渲染进程先选好本地文件，传路径过来）
   selectAndUpload: (destPrefix) => ipcRenderer.invoke('b2:selectAndUpload', destPrefix),
   uploadLocalFile: (localPath, b2FileName) =>
     ipcRenderer.invoke('b2:upload', { localPath, b2FileName }),
 
-  // 下载（主进程弹保存对话框）
-  downloadFile: (b2FileName, defaultName) =>
-    ipcRenderer.invoke('b2:download', { b2FileName, defaultName }),
+  // 下载（主进程弹保存对话框）；fileId 用于下载历史版本
+  downloadFile: (b2FileName, defaultName, fileId) =>
+    ipcRenderer.invoke('b2:download', { b2FileName, defaultName, fileId }),
   cancelDownload: (taskId) => ipcRenderer.invoke('b2:cancelDownload', taskId),
 
   // 删除
@@ -31,8 +34,8 @@ contextBridge.exposeInMainWorld('b2api', {
   // 新建文件夹
   createFolder: (prefix) => ipcRenderer.invoke('b2:createFolder', prefix),
 
-  // 分享链接
-  getShareUrl: (fileName) => ipcRenderer.invoke('b2:shareUrl', fileName),
+  // 分享链接；fileId 用于分享历史版本
+  getShareUrl: (fileName, fileId) => ipcRenderer.invoke('b2:shareUrl', { fileName, fileId }),
 
   // 预览流地址（视频/音频）
   getPreviewUrl: (fileName) => ipcRenderer.invoke('b2:previewUrl', fileName),

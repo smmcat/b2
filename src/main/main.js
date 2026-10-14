@@ -96,6 +96,14 @@ ipcMain.handle('b2:listFiles', async (_e, prefix) => {
   }
 });
 
+ipcMain.handle('b2:listFileVersions', async (_e, prefix) => {
+  try {
+    return { ok: true, data: await b2.listFileVersions(prefix || '') };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 ipcMain.handle('b2:selectAndUpload', async (_e, destPrefix) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '选择要上传的文件',
@@ -138,7 +146,7 @@ ipcMain.handle('b2:upload', async (_e, { localPath, b2FileName }) => {
   }
 });
 
-ipcMain.handle('b2:download', async (_e, { b2FileName, defaultName }) => {
+ipcMain.handle('b2:download', async (_e, { b2FileName, defaultName, fileId }) => {
   const result = await dialog.showSaveDialog(mainWindow, {
     title: '保存文件',
     defaultPath: defaultName || path.basename(b2FileName) || 'download',
@@ -160,6 +168,7 @@ ipcMain.handle('b2:download', async (_e, { b2FileName, defaultName }) => {
         (loaded, total) => sendProgress({ type: 'download', taskId, name, phase: 'progress', loaded, total }),
         settings.get(),
         controller.signal,
+        fileId,
       );
       sendProgress({ type: 'download', taskId, name, phase: 'done' });
     } catch (err) {
@@ -214,9 +223,12 @@ ipcMain.handle('b2:createFolder', async (_e, prefix) => {
   }
 });
 
-ipcMain.handle('b2:shareUrl', (_e, fileName) => {
+ipcMain.handle('b2:shareUrl', (_e, { fileName, fileId }) => {
   try {
-    return { ok: true, url: b2.buildFileUrl(fileName, settings.get()) };
+    let url = b2.buildFileUrl(fileName, settings.get());
+    // 历史版本分享：以 fileId query 指定版本
+    if (fileId) url += `?fileId=${encodeURIComponent(fileId)}`;
+    return { ok: true, url };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -310,6 +322,8 @@ ipcMain.handle('b2:fetchDataUrl', async (_e, { url }) => {
 const SHARE_MEDIA_EXTS = new Set([
   'mp3', 'wav', 'ogg', 'oga', 'm4a', 'aac', 'flac',
   'mp4', 'webm', 'ogv', 'mov', 'm4v', 'mkv',
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'ico',
+  'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz',
 ]);
 function isShareMedia(name) {
   return SHARE_MEDIA_EXTS.has((name.split('.').pop() || '').toLowerCase());
