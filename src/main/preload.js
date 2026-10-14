@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('b2api', {
   // 列出当前目录文件的历史版本（{ fileName: [version...] }）
   listFileVersions: (prefix) => ipcRenderer.invoke('b2:listFileVersions', prefix),
 
+  // 递归列出前缀下全部文件（含 .folderkeep 占位），供文件夹整体移动/重命名
+  listAllFiles: (prefix) => ipcRenderer.invoke('b2:listAllFiles', prefix),
+
   // 上传（渲染进程先选好本地文件，传路径过来）
   selectAndUpload: (destPrefix) => ipcRenderer.invoke('b2:selectAndUpload', destPrefix),
   uploadLocalFile: (localPath, b2FileName) =>
@@ -30,6 +33,10 @@ contextBridge.exposeInMainWorld('b2api', {
 
   // 重命名
   renameFile: (oldName, newName) => ipcRenderer.invoke('b2:rename', { oldName, newName }),
+
+  // 移动（copy + delete，保留全部历史版本）
+  moveFile: (sourceFileName, destFileName) =>
+    ipcRenderer.invoke('b2:move', { sourceFileName, destFileName }),
 
   // 新建文件夹
   createFolder: (prefix) => ipcRenderer.invoke('b2:createFolder', prefix),

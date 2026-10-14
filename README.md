@@ -11,8 +11,9 @@
 -  **上传**：自动识别大小 —— 小文件走 `b2_upload_file` 单次上传，≥200MB 自动走 `b2_start_large_file` 分片上传（100MB/片），带实时进度
 -  **下载**：`b2_download_file_by_name` 流式写入磁盘，支持**取消**；配置代理时自动走代理（免流 + 绕过 DNS 劫持）
 -  **删除**：文件用 `b2_delete_file_version`，文件夹递归删除其下全部文件
--  **重命名 / 移动**：`b2_copy_file` + `b2_delete_file_version`，支持整文件夹迁移
+-  **重命名**：`b2_copy_file` + `b2_delete_file_version`，支持整文件夹重命名
 -  **新建文件夹**：上传零字节 `.folderkeep` 占位文件
+-  **移动文件 / 文件夹**：行内「移动」按钮通过文件夹选择器指定目标位置；也可直接把文件名拖到某个文件夹行上完成移动。底层 `b2_copy_file` + `b2_delete_file_version`，逐版本迁移（含历史版本），支持整文件夹迁移
 -  **拖拽上传**：拖到文件夹行上传到该文件夹，拖到其余区域上传到当前目录
 
 ### 预览与分享
@@ -185,7 +186,7 @@ npm run build    # 生成 dist\B2NetDisk Setup 1.0.0.exe
 
 **自动同步**：在已创建配置的文件夹范围内执行上传 / 拖拽上传 / 删除 / 重命名后，软件会自动重新扫描并覆盖云端 `sharedConfig.json`，部署后的页面刷新即见新内容，无需手动操作。
 
-**分享页特性**：小博客风格单文件页面（主标题 + 公告 + 可折叠分类），按扩展名区分展示：音频/视频内嵌播放器，图片懒加载内联展示，压缩包提供下载按钮，应用程序安装包（exe/msi/dmg/pkg/apk/aab/xapk/deb/rpm/appimage）按 **Windows / macOS / Android / Linux** 分平台卡片展示（平台图标 + 专属配色 + 下载按钮）。每次访问实时 `fetch` json 渲染，json 的实际链接（代理地址）在生成时写死进 html。每个分类支持独立排序：**上传时间 / 文件名 × 递增 / 递减**，默认上传时间递增。
+**分享页特性**：小博客风格单文件页面（主标题 + 公告 + 可折叠分类），按扩展名区分展示：音频/视频内嵌播放器，图片懒加载内联展示，压缩包提供下载按钮，应用程序安装包（exe/msi/dmg/pkg/apk/aab/xapk/deb/rpm/appimage）按 **Windows / macOS / Android / Linux** 分平台卡片展示（平台图标 + 专属配色 + 下载按钮）。每次访问实时 `fetch` json 渲染，json 的实际链接（代理地址）在生成时写死进 html。每个分类支持独立排序：**上传时间 / 文件名 × 递增 / 递减**，默认上传时间递减（最新在前）。
 
 **部署到 Cloudflare Pages**：
 1. Cloudflare 控制台 → Workers 和 Pages → 创建 → Pages → 上传资产，把 `index.html` 拖入部署

@@ -119,11 +119,13 @@ function makeFolderRow(folder) {
     <div class="col-op">
       <button class="op-btn" data-act="open">打开</button>
       <button class="op-btn" data-act="renameFolder">重命名</button>
+      <button class="op-btn" data-act="moveFolder">移动</button>
       <button class="op-btn danger" data-act="deleteFolder">删除</button>
     </div>`;
   row.querySelector('.fname').textContent = folder;
   row.querySelector('[data-act=open]').onclick = () => navigate(state.prefix + folder + '/');
   row.querySelector('[data-act=renameFolder]').onclick = () => openRenameModal('folder', folder);
+  row.querySelector('[data-act=moveFolder]').onclick = () => openMovePicker('folder', folder);
   row.querySelector('[data-act=deleteFolder]').onclick = () => deleteFolder(folder);
   row.ondblclick = () => navigate(state.prefix + folder + '/');
   attachFolderDropHandlers(row, folder);
@@ -148,6 +150,7 @@ function makeFileRow(file) {
       <button class="op-btn" data-act="download">下载</button>
       <button class="op-btn" data-act="share">分享</button>
       <button class="op-btn" data-act="rename">重命名</button>
+      <button class="op-btn" data-act="move">移动</button>
       <button class="op-btn danger" data-act="delete">${multi ? '删除所有' : '删除'}</button>
     </div>`;
   row.querySelector('.icon').textContent = fileIcon(baseName, false);
@@ -159,6 +162,7 @@ function makeFileRow(file) {
   row.querySelector('[data-act=download]').onclick = () => downloadFile(file);
   row.querySelector('[data-act=share]').onclick = () => shareFile(file);
   row.querySelector('[data-act=rename]').onclick = () => openRenameModal('file', baseName);
+  row.querySelector('[data-act=move]').onclick = () => openMovePicker('file', baseName);
   row.querySelector('[data-act=delete]').onclick = () => deleteFile(file);
   // 多版本文件：点击箭头展开/收起历史版本列表
   if (multi) {
@@ -170,6 +174,20 @@ function makeFileRow(file) {
   }
   // 双击：媒体文件打开预览，其余不做特殊处理
   if (kind) row.ondblclick = () => openPreview(file);
+  // 拖动文件名到文件夹行 = 移动（放在名称列上，避免拖动时误触发操作按钮）
+  const nameCell = row.querySelector('.col-name');
+  nameCell.draggable = true;
+  nameCell.title = '拖动到文件夹可移动';
+  nameCell.addEventListener('dragstart', (e) => {
+    dragSourceFile = file.fileName;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', baseName);
+    row.classList.add('dragging');
+  });
+  nameCell.addEventListener('dragend', () => {
+    dragSourceFile = null;
+    row.classList.remove('dragging');
+  });
   return row;
 }
 
@@ -344,39 +362,23 @@ $('renameOk').onclick = async () => {
     if (res.ok) { toast('重命名成功', 'success'); loadList(); autoUpdateShareConfig(); }
     else toast('重命名失败：' + res.error, 'error');
   } else {
-    // 文件夹重命名：遍历其下所有文件，逐个 copy + delete
+    // 文件夹重命名：递归列出全部对象（含 .folderkeep 占位），逐个 copy + delete
     toast('正在处理文件夹重命名…');
-    const listRes = await window.b2api.listFiles(state.prefix + baseName + '/');
+    const srcPrefix = state.prefix + baseName + '/';
+    const destPrefix = state.prefix + newName + '/';
+    const listRes = await window.b2api.listAllFiles(srcPrefix);
     if (!listRes.ok) { toast('读取失败：' + listRes.error, 'error'); return; }
-    const allFiles = await collectAllFiles(state.prefix + baseName + '/');
+    const allFiles = listRes.data;
     let okCount = 0, failCount = 0;
     for (const f of allFiles) {
-      const rel = f.fileName.substring((state.prefix + baseName + '/').length);
-      const newFull = state.prefix + newName + '/' + rel;
-      const r = await window.b2api.renameFile(f.fileName, newFull);
+      const rel = f.fileName.substring(srcPrefix.length);
+      const r = await window.b2api.renameFile(f.fileName, destPrefix + rel);
       if (r.ok) okCount++; else failCount++;
-    }
-    // 占位文件
-    const keepOld = state.prefix + baseName + '/.folderkeep';
-    const keepNew = state.prefix + newName + '/.folderkeep';
-    if (allFiles.some((f) => f.fileName === keepOld)) {
-      await window.b2api.renameFile(keepOld, keepNew);
     }
     toast(`完成：成功 ${okCount}，失败 ${failCount}`, failCount ? 'error' : 'success');
     loadList();
   }
 };
-
-// 递归收集某前缀下所有文件
-async function collectAllFiles(prefix, acc = []) {
-  const res = await window.b2api.listFiles(prefix);
-  if (!res.ok) return acc;
-  for (const f of res.data.files) acc.push(f);
-  for (const folder of res.data.folders) {
-    await collectAllFiles(prefix + folder + '/', acc);
-  }
-  return acc;
-}
 
 /* ---------- 进度面板 ---------- */
 let panelHidden = false;
@@ -502,15 +504,94 @@ $('settingsOk').onclick = async () => {
   loadList();
 };
 
+/* ---------- 移动 ---------- */
+// 阻塞式遮罩：耗时请求期间禁止交互，避免用户重复点击产生误解
+function showBusy(text) {
+  $('busyText').textContent = text || '处理中…';
+  $('busyMask').classList.remove('hidden');
+}
+function hideBusy() {
+  $('busyMask').classList.add('hidden');
+}
+
+function openMovePicker(type, baseName) {
+  const title = `${type === 'folder' ? '移动文件夹' : '移动文件'}「${baseName}」到目标文件夹`;
+  openFolderPicker(title, state.prefix, (destPrefix) => moveEntry(type, baseName, destPrefix));
+}
+
+async function moveEntry(type, baseName, destPrefix) {
+  const srcFull = state.prefix + baseName;
+  if (type === 'file') {
+    const destFull = destPrefix + baseName;
+    if (destFull === srcFull) { toast('文件已在该文件夹中'); return; }
+    let ok = false, msg = '';
+    showBusy('正在移动文件…');
+    try {
+      const res = await window.b2api.moveFile(srcFull, destFull);
+      ok = !!res.ok;
+      msg = ok ? `移动成功（含 ${res.data.versions} 个版本）` : `移动失败：${res.error}`;
+      if (ok) await loadList(); // 保持遮罩直到列表刷新完，避免旧列表被误操作
+    } finally {
+      hideBusy();
+    }
+    toast(msg, ok ? 'success' : 'error');
+    if (ok) autoUpdateShareConfig([destPrefix]);
+    return;
+  }
+
+  // 文件夹：禁止移动到自身、其子目录或原地
+  const srcPrefix = srcFull + '/';
+  const destPrefixFull = destPrefix + baseName + '/';
+  if (destPrefixFull === srcPrefix || destPrefixFull.startsWith(srcPrefix) || destPrefix === state.prefix) {
+    toast('不能移动到自身、其子文件夹或当前位置', 'error');
+    return;
+  }
+
+  let okCount = 0, failCount = 0;
+  showBusy('正在移动文件夹…');
+  try {
+    const listRes = await window.b2api.listAllFiles(srcPrefix);
+    if (!listRes.ok) { toast('读取失败：' + listRes.error, 'error'); return; }
+    const allFiles = listRes.data; // 含 .folderkeep 占位，保证空子目录也能整体迁移
+    if (!allFiles.length) { toast('该文件夹为空或读取失败', 'error'); return; }
+    for (const f of allFiles) {
+      const rel = f.fileName.substring(srcPrefix.length);
+      const r = await window.b2api.moveFile(f.fileName, destPrefixFull + rel);
+      if (r.ok) okCount++; else failCount++;
+    }
+    await loadList();
+  } finally {
+    hideBusy();
+  }
+  toast(`移动完成：成功 ${okCount}，失败 ${failCount}`, failCount ? 'error' : 'success');
+  autoUpdateShareConfig([destPrefix]);
+}
+
 /* ---------- 拖拽上传 ---------- */
-let dragTargetFolder = null; // 当前拖拽悬停的文件夹名（相对当前目录）
+let dragSourceFile = null;   // 正在拖动的库内文件完整对象名（拖拽移动用）
+let dropHighlightEl = null;  // 当前高亮的文件夹行（同一时刻只保留一个，避免拖动轨迹上残留高亮）
+
+// 同一时刻只高亮一个目标行
+function setDropHighlight(el) {
+  if (dropHighlightEl === el) return;
+  if (dropHighlightEl) dropHighlightEl.classList.remove('drop-target');
+  dropHighlightEl = el;
+  if (el) el.classList.add('drop-target');
+}
+
+// 拖拽结束（含放到空白处、按 ESC 取消）统一清理，避免高亮残留
+window.addEventListener('dragend', () => {
+  dragSourceFile = null;
+  setDropHighlight(null);
+});
 
 window.addEventListener('dragover', (e) => {
   e.preventDefault();
-  e.dataTransfer.dropEffect = 'copy';
+  e.dataTransfer.dropEffect = dragSourceFile ? 'move' : 'copy';
 });
 window.addEventListener('drop', (e) => {
   e.preventDefault();
+  if (dragSourceFile) return; // 库内文件拖拽：未落在文件夹行上则忽略
   const files = [...(e.dataTransfer.files || [])].filter((f) => f.path);
   if (!files.length) return;
   handleDroppedFiles(files);
@@ -520,19 +601,34 @@ window.addEventListener('drop', (e) => {
 function attachFolderDropHandlers(rowEl, folderName) {
   rowEl.addEventListener('dragenter', (e) => {
     e.preventDefault();
-    dragTargetFolder = folderName;
-    rowEl.style.background = '#d9ecff';
+    setDropHighlight(rowEl);
   });
-  rowEl.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
-  rowEl.addEventListener('dragleave', () => {
-    if (dragTargetFolder === folderName) dragTargetFolder = null;
-    rowEl.style.background = '';
+  rowEl.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = dragSourceFile ? 'move' : 'copy';
+    // 相邻行切换时 dragenter 可能先于上一行的 dragleave 发生，这里兜底保证高亮跟着走
+    if (dropHighlightEl !== rowEl) setDropHighlight(rowEl);
+  });
+  rowEl.addEventListener('dragleave', (e) => {
+    // 在行内子元素之间移动不算离开，忽略，避免高亮闪烁
+    if (e.relatedTarget && rowEl.contains(e.relatedTarget)) return;
+    if (dropHighlightEl === rowEl) setDropHighlight(null);
   });
   rowEl.addEventListener('drop', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    rowEl.style.background = '';
-    dragTargetFolder = null;
+    setDropHighlight(null);
+
+    // 库内文件 → 移动到该文件夹
+    if (dragSourceFile) {
+      const srcFull = dragSourceFile;
+      dragSourceFile = null;
+      const destPrefix = state.prefix + folderName + '/';
+      const base = srcFull.substring(state.prefix.length);
+      moveEntry('file', base, destPrefix);
+      return;
+    }
+
     const files = [...(e.dataTransfer.files || [])].filter((f) => f.path);
     if (!files.length) return;
     handleDroppedFiles(files, state.prefix + folderName + '/');
@@ -551,7 +647,7 @@ async function handleDroppedFiles(files, targetPrefix) {
   }
   toast(`拖拽上传完成：成功 ${okCount}，失败 ${failCount}`, failCount ? 'error' : 'success');
   loadList();
-  autoUpdateShareConfig();
+  autoUpdateShareConfig([destPrefix]);
 }
 
 function sendProg(p) {
@@ -787,26 +883,44 @@ $('shareMenuArchives').onclick = () => {
 $('shareArchivesClose').onclick = () => $('shareArchivesModal').classList.add('hidden');
 
 /* ---------- 自动同步分享配置 ---------- */
-// 上传/删除/重命名后调用：当前目录若属于某个分享存档范围，则后台自动重新生成其 sharedConfig.json
-async function findMatchingArchive() {
-  const res = await window.b2api.shareGetArchives();
-  const list = (res && res.ok) ? res.data : [];
+// 上传/删除/重命名/移动后调用：相关目录若属于某个分享存档范围，则后台自动重新生成其 sharedConfig.json
+// 从存档列表里挑出覆盖 prefix 的最深层范围
+function pickArchiveFor(list, prefix) {
   let best = null;
   for (const a of list) {
     const f = a.folder || '';
-    if (state.prefix === f || state.prefix.startsWith(f)) {
+    if (prefix === f || prefix.startsWith(f)) {
       if (!best || f.length > (best.folder || '').length) best = a; // 取最深层匹配的存档
     }
   }
   return best;
 }
 
-async function autoUpdateShareConfig() {
+async function findMatchingArchive() {
+  const res = await window.b2api.shareGetArchives();
+  return pickArchiveFor((res && res.ok) ? res.data : [], state.prefix);
+}
+
+/**
+ * 重新生成受影响的 sharedConfig.json
+ * @param {string[]} [extraPrefixes] 额外需要检查的目录（如移动操作的目标目录）
+ */
+async function autoUpdateShareConfig(extraPrefixes) {
   try {
-    const arc = await findMatchingArchive();
-    if (!arc) return;
-    const r = await window.b2api.shareCreateConfig(arc.folder);
-    if (r.ok) toast(`已同步更新分享页配置（${r.data.fileCount} 个媒体）`, 'success');
+    const res = await window.b2api.shareGetArchives();
+    const list = (res && res.ok) ? res.data : [];
+    const targets = new Set();
+    for (const p of [state.prefix].concat(extraPrefixes || [])) {
+      const a = pickArchiveFor(list, p);
+      if (a) targets.add(a.folder);
+    }
+    if (!targets.size) return;
+    let ok = 0, fileCount = 0;
+    for (const folder of targets) {
+      const r = await window.b2api.shareCreateConfig(folder);
+      if (r.ok) { ok++; fileCount += r.data.fileCount; }
+    }
+    if (ok) toast(`已同步更新分享页配置（${ok} 个范围，${fileCount} 个媒体）`, 'success');
   } catch (_) { /* 静默失败，不影响主流程 */ }
 }
 

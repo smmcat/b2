@@ -190,7 +190,7 @@ function buildShareHtml({ title, notice, configUrl }) {
       }
       cats.forEach(function (cat, idx) {
         var items = Array.isArray(config[cat]) ? config[cat].slice() : [];
-        var sortState = { key: 'time', dir: 'asc' }; // 默认：上传时间 · 递增
+        var sortState = { key: 'time', dir: 'desc' }; // 默认：上传时间 · 递减（最新在前）
 
         var details = document.createElement('details');
         details.className = 'category';
@@ -209,8 +209,8 @@ function buildShareHtml({ title, notice, configUrl }) {
             '<option value="name">文件名</option>' +
           '</select>' +
           '<select class="sort-dir">' +
-            '<option value="asc" selected>递增</option>' +
-            '<option value="desc">递减</option>' +
+            '<option value="asc">递增</option>' +
+            '<option value="desc" selected>递减</option>' +
           '</select>';
         details.appendChild(bar);
 

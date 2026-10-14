@@ -149,9 +149,11 @@ class B2Client {
 
   /**
    * 递归列出 prefix 下的全部文件（不带 delimiter，一次拿全子路径）
+   * @param {string} prefix 目录前缀
+   * @param {{includePlaceholders?:boolean}} [opts] includePlaceholders=true 时保留 .folderkeep 目录占位文件
    * @returns {object[]} B2 文件对象数组
    */
-  async listAllFiles(prefix = '') {
+  async listAllFiles(prefix = '', { includePlaceholders = false } = {}) {
     await this._ensureAuth();
     const files = [];
     let startFileName = null;
@@ -160,8 +162,9 @@ class B2Client {
       if (startFileName) body.startFileName = startFileName;
       const data = await this._callApi('b2_list_file_names', body);
       for (const f of data.files) {
-        if (f.fileName.endsWith('/.folderkeep')) continue;
         if (f.action !== 'upload') continue;
+        // 目录占位文件默认不计入；删除/移动文件夹时需保留以免残留空目录
+        if (!includePlaceholders && f.fileName.endsWith('/.folderkeep')) continue;
         files.push(f);
       }
       if (!data.nextFileName) break;
@@ -188,7 +191,15 @@ class B2Client {
       },
       body: buf,
     });
-    let res = await doUpload(endpoint);
+    let res;
+    try {
+      res = await doUpload(endpoint);
+    } catch (err) {
+      // 瞬时网络错误（连接被重置 / 对端关闭等）：重取上传地址后重试一次
+      if (!_isNetworkError(err)) throw err;
+      this._uploadEndpoint = null;
+      res = await doUpload(await this._getUploadEndpoint());
+    }
     if (res.status === 401 || res.status === 408 || res.status >= 500) {
       this._uploadEndpoint = null;
       res = await doUpload(await this._getUploadEndpoint());
@@ -326,7 +337,15 @@ class B2Client {
       return res;
     };
 
-    let res = await doUpload(endpoint);
+    let res;
+    try {
+      res = await doUpload(endpoint);
+    } catch (err) {
+      // 瞬时网络错误（连接被重置 / 对端关闭等）：重取上传地址后重试一次
+      if (!_isNetworkError(err)) throw err;
+      this._uploadEndpoint = null;
+      res = await doUpload(await this._getUploadEndpoint());
+    }
     if (res.status === 401 || res.status === 408 || (res.status >= 500 && res.status < 600)) {
       // 上传端点失效或服务器临时错误，重新取 URL 重试一次
       this._uploadEndpoint = null;
@@ -571,7 +590,8 @@ class B2Client {
       return this._callApi('b2_delete_file_version', { fileName, fileId });
     }
     // 没传 fileId 时，递归列出其下所有文件逐个删（用于删除整个文件夹）
-    const files = await this.listAllFiles(fileName.endsWith('/') ? fileName : fileName + '/');
+    // includePlaceholders=true：连目录占位文件一并删除，否则空目录会残留
+    const files = await this.listAllFiles(fileName.endsWith('/') ? fileName : fileName + '/', { includePlaceholders: true });
     const results = [];
     for (const f of files) {
       results.push(await this._callApi('b2_delete_file_version', { fileName: f.fileName, fileId: f.fileId }));
@@ -580,28 +600,70 @@ class B2Client {
   }
 
   /**
-   * 重命名/移动：b2_copy_file + b2_delete_file_version
+   * 重命名：等价于同目录内的移动（保留全部历史版本）
    */
   async renameFile(sourceFileName, newFileName) {
-    // 先取 fileId
-    const data = await this._callApi('b2_list_file_names', {
-      bucketId: this.bucketId,
-      prefix: sourceFileName,
-      maxFileCount: 1,
-    });
-    const target = (data.files || []).find((f) => f.fileName === sourceFileName);
-    if (!target) throw new Error(`文件不存在: ${sourceFileName}`);
+    return this.moveFile(sourceFileName, newFileName);
+  }
 
-    const copyRes = await this._callApi('b2_copy_file', {
-      sourceFileId: target.fileId,
-      fileName: newFileName,
-      metadataDirective: 'COPY',
-    });
-    await this._callApi('b2_delete_file_version', {
-      fileName: sourceFileName,
-      fileId: target.fileId,
-    });
-    return copyRes;
+  /**
+   * 移动文件到新路径。B2 无原生 move，用 b2_copy_file + b2_delete_file_version 实现。
+   * 逐个复制全部历史版本（旧 → 新），使目标文件保留完整版本序列，再删除源路径的全部
+   * 版本，避免只挪走当前版本、旧版本残留在原路径。
+   * 注意：b2_copy_file 单次上限 5GB，超过该体积的文件无法用此方式移动。
+   * @param {string} sourceFileName 源文件完整对象名
+   * @param {string} destFileName 目标文件完整对象名
+   * @returns {{versions:number}} 迁移的版本数量
+   */
+  async moveFile(sourceFileName, destFileName) {
+    if (sourceFileName === destFileName) return { versions: 0 };
+    const versions = await this._listAllVersionsOf(sourceFileName);
+    if (!versions.length) throw new Error(`文件不存在: ${sourceFileName}`);
+
+    for (const v of versions) {
+      await this._callApi('b2_copy_file', {
+        sourceFileId: v.fileId,
+        fileName: destFileName,
+        metadataDirective: 'COPY',
+      });
+    }
+    for (const v of versions) {
+      await this._callApi('b2_delete_file_version', {
+        fileName: sourceFileName,
+        fileId: v.fileId,
+      });
+    }
+    return { versions: versions.length };
+  }
+
+  /**
+   * 列出某个精确文件名的全部上传版本，按上传时间升序（旧 → 新）。
+   * b2_list_file_versions 按文件名升序返回，遇到其他文件名即可停止翻页。
+   */
+  async _listAllVersionsOf(fileName) {
+    await this._ensureAuth();
+    const out = [];
+    let startFileName = null;
+    let startFileId = null;
+    for (let i = 0; i < 50; i++) {
+      const body = { bucketId: this.bucketId, prefix: fileName, maxFileCount: 100 };
+      if (startFileName) {
+        body.startFileName = startFileName;
+        body.startFileId = startFileId;
+      }
+      const data = await this._callApi('b2_list_file_versions', body);
+      let passed = false;
+      for (const f of data.files) {
+        if (f.fileName !== fileName) { passed = true; break; } // 已越过目标文件名
+        if (f.action !== 'upload') continue; // 跳过隐藏标记
+        out.push(f);
+      }
+      if (passed || !data.nextFileName) break;
+      startFileName = data.nextFileName;
+      startFileId = data.nextFileId;
+    }
+    out.sort((a, b) => (a.uploadTimestamp || 0) - (b.uploadTimestamp || 0));
+    return out;
   }
 
   /**
@@ -619,6 +681,14 @@ class B2Client {
 function _encodeB2Name(name) {
   // B2 要求 X-Bz-File-Name 为 URL 编码的 UTF-8
   return encodeURIComponent(name).replace(/%2F/g, '/');
+}
+
+/**
+ * 判断 fetch 抛出的错误是否为可重试的瞬时网络错误（区别于 4xx 之类的确定性错误）
+ */
+function _isNetworkError(err) {
+  const msg = (err && (err.cause ? err.cause.message : err.message)) || '';
+  return /ECONNRESET|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EPIPE|socket|other side closed|fetch failed|UND_ERR/i.test(msg);
 }
 
 async function _sha1OfFile(filePath) {

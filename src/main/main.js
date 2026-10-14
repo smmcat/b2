@@ -104,6 +104,15 @@ ipcMain.handle('b2:listFileVersions', async (_e, prefix) => {
   }
 });
 
+// 递归列出前缀下全部文件（含 .folderkeep 目录占位），供文件夹整体移动/重命名使用
+ipcMain.handle('b2:listAllFiles', async (_e, prefix) => {
+  try {
+    return { ok: true, data: await b2.listAllFiles(prefix || '', { includePlaceholders: true }) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 ipcMain.handle('b2:selectAndUpload', async (_e, destPrefix) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '选择要上传的文件',
@@ -209,6 +218,14 @@ ipcMain.handle('b2:rename', async (_e, { oldName, newName }) => {
   try {
     await b2.renameFile(oldName, newName);
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('b2:move', async (_e, { sourceFileName, destFileName }) => {
+  try {
+    return { ok: true, data: await b2.moveFile(sourceFileName, destFileName) };
   } catch (err) {
     return { ok: false, error: err.message };
   }
