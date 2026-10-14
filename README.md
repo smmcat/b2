@@ -163,7 +163,7 @@ npm start        # 或 npm run dev
 ##  打包发布
 
 ```powershell
-npm run build    # 生成 dist\B2NetDisk Setup 1.0.0.exe
+npm run build    # 生成 dist\B2NetDisk Setup 1.2.2.exe
 ```
 
 打包说明：
