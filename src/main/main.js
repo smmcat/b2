@@ -324,6 +324,8 @@ const SHARE_MEDIA_EXTS = new Set([
   'mp4', 'webm', 'ogv', 'mov', 'm4v', 'mkv',
   'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'ico',
   'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz',
+  // 应用程序安装包：Windows / macOS / Android / Linux
+  'exe', 'msi', 'dmg', 'pkg', 'apk', 'aab', 'xapk', 'deb', 'rpm', 'appimage',
 ]);
 function isShareMedia(name) {
   return SHARE_MEDIA_EXTS.has((name.split('.').pop() || '').toLowerCase());
